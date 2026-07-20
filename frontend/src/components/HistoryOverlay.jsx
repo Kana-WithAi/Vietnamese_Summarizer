@@ -4,15 +4,16 @@ import { useHistory } from '../context/HistoryContext'
 
 const ITEMS_PER_PAGE = 6
 
+// sample summaries include `inputType` and `date` to support filtering
 const initialSummaries = [
-  { id: 1, title: 'Project Report Q3', time: '2 hours ago' },
-  { id: 2, title: 'Meeting Notes', time: '1 day ago' },
-  { id: 3, title: 'Article Summary', time: '3 days ago' },
-  { id: 4, title: 'Document Review', time: '1 week ago' },
-  { id: 5, title: 'Presentation Script', time: '2 weeks ago' },
-  { id: 6, title: 'Weekly Reflection', time: '3 weeks ago' },
-  { id: 7, title: 'Client Feedback', time: '1 month ago' },
-  { id: 8, title: 'Research Highlights', time: '2 months ago' },
+  { id: 1, title: 'Project Report Q3', time: '2 hours ago', inputType: 'paste', date: '2026-07-19' },
+  { id: 2, title: 'Meeting Notes', time: '1 day ago', inputType: 'upload', date: '2026-07-18' },
+  { id: 3, title: 'Article Summary', time: '3 days ago', inputType: 'paste', date: '2026-07-16' },
+  { id: 4, title: 'Document Review', time: '1 week ago', inputType: 'upload', date: '2026-07-12' },
+  { id: 5, title: 'Presentation Script', time: '2 weeks ago', inputType: 'paste', date: '2026-07-05' },
+  { id: 6, title: 'Weekly Reflection', time: '3 weeks ago', inputType: 'upload', date: '2026-06-28' },
+  { id: 7, title: 'Client Feedback', time: '1 month ago', inputType: 'paste', date: '2026-06-20' },
+  { id: 8, title: 'Research Highlights', time: '2 months ago', inputType: 'upload', date: '2026-05-19' },
 ]
 
 function HistoryOverlay() {
@@ -21,6 +22,10 @@ function HistoryOverlay() {
   const { isHistoryOpen, closeHistory } = useHistory()
   const [summaries, setSummaries] = useState(initialSummaries)
   const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [filterInputType, setFilterInputType] = useState('all')
+  const [filterDate, setFilterDate] = useState('')
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -42,18 +47,41 @@ function HistoryOverlay() {
   }, [isHistoryOpen, closeHistory])
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(summaries.length / ITEMS_PER_PAGE))
-    if (page > totalPages) {
-      setPage(totalPages)
+    // ensure page is valid when summaries list changes
+    const totalPagesNow = Math.max(1, Math.ceil(summaries.length / ITEMS_PER_PAGE))
+    if (page > totalPagesNow) {
+      setPage(totalPagesNow)
     }
   }, [page, summaries])
 
-  const totalPages = Math.max(1, Math.ceil(summaries.length / ITEMS_PER_PAGE))
+  // compute filtered count and visible items
+  const totalFiltered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return summaries.filter((s) => {
+      if (q && !s.title.toLowerCase().includes(q)) return false
+      if (filterInputType !== 'all' && s.inputType !== filterInputType) return false
+      if (filterDate) {
+        if (!s.date || !s.date.startsWith(filterDate)) return false
+      }
+      return true
+    }).length
+  }, [summaries, search, filterInputType, filterDate])
+
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / ITEMS_PER_PAGE))
 
   const visibleSummaries = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const filtered = summaries.filter((s) => {
+      if (q && !s.title.toLowerCase().includes(q)) return false
+      if (filterInputType !== 'all' && s.inputType !== filterInputType) return false
+      if (filterDate) {
+        if (!s.date || !s.date.startsWith(filterDate)) return false
+      }
+      return true
+    })
     const start = (page - 1) * ITEMS_PER_PAGE
-    return summaries.slice(start, start + ITEMS_PER_PAGE)
-  }, [page, summaries])
+    return filtered.slice(start, start + ITEMS_PER_PAGE)
+  }, [page, summaries, search, filterInputType, filterDate])
 
   const handleRemove = (id) => {
     setSummaries((prev) => prev.filter((item) => item.id !== id))
@@ -102,7 +130,91 @@ function HistoryOverlay() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {summaries.length === 0 ? (
+          {/* Search + filter */}
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-base px-2 py-1">
+              <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search"
+                className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen((s) => !s)}
+              className={`h-9 w-9 rounded-lg flex items-center justify-center text-slate-400 transition hover:bg-surface-base/50 ${isFilterOpen ? 'bg-surface-base/60 text-accent' : ''}`}
+              aria-label="Toggle filters"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h18M6 12h12M10 19h4" />
+              </svg>
+            </button>
+          </div>
+
+          {isFilterOpen && (
+            <div className="mb-4 rounded-xl border border-surface-border/20 bg-gradient-to-b from-surface-base/50 to-surface-base/30 p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <svg className="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h18M6 12h12M10 19h4" />
+                  </svg>
+                  <div>
+                    <div className="text-xs text-slate-400">Filter by date</div>
+                    <input
+                      type="date"
+                      value={filterDate}
+                      onChange={(e) => setFilterDate(e.target.value)}
+                      className="mt-1 w-44 rounded-md bg-surface-elevated px-2 py-1 text-sm text-slate-200 border border-surface-border/20 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => { setFilterDate(''); setFilterInputType('all'); }}
+                  className="text-xs text-slate-400 hover:text-accent"
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-slate-400 mb-2">Input Type</div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterInputType('all')}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${filterInputType === 'all' ? 'bg-accent text-surface-base shadow-sm' : 'bg-surface-elevated text-slate-300'}`}
+                  >
+                    All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFilterInputType('paste')}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${filterInputType === 'paste' ? 'bg-accent text-surface-base shadow-sm' : 'bg-surface-elevated text-slate-300'}`}
+                  >
+                    Paste
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFilterInputType('upload')}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${filterInputType === 'upload' ? 'bg-accent text-surface-base shadow-sm' : 'bg-surface-elevated text-slate-300'}`}
+                  >
+                    Upload
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {totalFiltered === 0 ? (
             <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
               No summaries yet.
             </div>
@@ -121,7 +233,7 @@ function HistoryOverlay() {
                       <p className="truncate text-sm font-medium text-slate-200 transition group-hover:text-white">
                         {item.title}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">{item.time}</p>
+                      <p className="mt-1 text-xs text-slate-500">{item.time} • {item.inputType}</p>
                     </div>
                   </button>
 
