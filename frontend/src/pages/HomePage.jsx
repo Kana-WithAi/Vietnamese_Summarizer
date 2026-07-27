@@ -21,7 +21,6 @@ function HomePage() {
     incoherent: false,
     grammar: false,
     spelling: false,
-    excuse: false,
   })
 
   const inputStats = countTextStats(inputText)
@@ -104,7 +103,6 @@ function HomePage() {
       incoherent: false,
       grammar: false,
       spelling: false,
-      excuse: false,
     })
   }
 
@@ -443,7 +441,6 @@ function HomePage() {
                     { key: 'incoherent', label: t('feedback.optionIncoherent') },
                     { key: 'grammar', label: t('feedback.optionGrammar') },
                     { key: 'spelling', label: t('feedback.optionSpelling') },
-                    { key: 'excuse', label: t('feedback.optionExcuse') },
                   ].map((option) => (
                     <button
                       key={option.key}

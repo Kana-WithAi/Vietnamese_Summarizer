@@ -1,85 +1,67 @@
 # Vietnamese Summarizer
 
-A React + Vite frontend prototype for a bilingual Vietnamese text summarization app.
+A React + Vite frontend prototype for a bilingual (English / Vietnamese) text summarization app.
 
-## Current progress
+## Highlights
 
-- Built the main app shell with React, Vite, and Tailwind-friendly styling.
-- Added a home summarizer screen with:
-  - text input / paste / file upload support
-  - summary length controls (short, medium, long)
-  - output format controls (paragraph, bullet points)
-  - text stats display for input and output
-  - copy, download, and text-to-speech actions
-- Added authentication pages for login and signup UI flows.
-- Added bilingual support with a language switcher for English and Vietnamese.
-- Added a slide-out `History` overlay from the header, with:
-  - a translucent dark panel-style design
-  - a list of summary history entries
-  - pagination when entries exceed 6
-  - per-item delete controls
-- Added a matching `Bookmark` overlay in the header, with:
-  - the same panel style and behavior as the history overlay
-  - bookmark icons for each saved summary
-  - pagination and per-item removal support
-- Expanded the summarization workspace for a wider and more spacious UI.
+- Summarization UI with: text input, paste, file upload, and summary length controls (short/medium/long).
+- Output formats: paragraph or bullet points, with copy, download, and text-to-speech actions.
+- Bilingual support via a language switcher and in-app translations stored under `src/i18n/translations.js`.
+- History and Bookmarks overlays (UI-only) for browsing and removing saved entries.
+- Admin Dashboard: a new `/dashboard` route and page for basic admin views.
+- Feedback flow: thumbs up / thumbs down controls shown only after a summary is generated. On dislike, a feedback modal collects structured reasons and details.
+- UI polish: official thumbs up/down SVG icons and updated action styles.
 
-## What is still pending
+## Current status
 
-- The summarizer is currently a UI prototype and does not yet connect to a real summarization API.
-- The login/signup screens are UI-only and do not have backend authentication implemented.
-- Persistent storage for history/bookmarks is not yet available.
+- Frontend prototype: UI features are implemented and the project builds successfully with Vite.
+- The summarization logic is a UI placeholder and does not call a backend summarization API yet.
+- Authentication pages (Login/Signup) are UI-only.
 
 ## Setup
 
-1. Install Node.js (version 18+ recommended).
-2. Open a terminal in the project root.
-3. Change into the frontend folder:
+Prerequisite: Node.js (18+ recommended).
+
+From the project root:
 
 ```bash
 cd frontend
-```
-
-4. Install dependencies:
-
-```bash
 npm install
 ```
 
 ## Run locally
 
-From the `frontend` folder, start the development server:
+Start the dev server:
 
 ```bash
 npm run dev
 ```
 
-Then open the local URL shown by Vite (typically `http://localhost:5173`).
+Open the URL shown by Vite (usually `http://localhost:5173`).
 
 ## Build for production
-
-From the `frontend` folder, run:
 
 ```bash
 npm run build
 ```
 
-To preview the production build locally:
+Preview the production build locally:
 
 ```bash
 npm run preview
 ```
 
-## Project structure
+## Notable files
 
-- `frontend/` — main React app
-  - `src/` — application source code
-  - `src/pages/` — page components for home, login, and signup
-  - `src/components/` — reusable UI components including overlays and layout
-  - `src/context/` — React context providers for language and history
-  - `src/i18n/` — language translations
-  - `src/utils/` — helper utilities
+- `frontend/src/pages/HomePage.jsx` — main summarizer UI, feedback modal, and output actions.
+- `frontend/src/i18n/translations.js` — localized strings (English + Vietnamese). Add missing keys here when extending the UI.
+- `frontend/src/pages/DashboardPage.jsx` — admin dashboard route implementation.
+- `frontend/src/components/Layout.jsx` — header and navigation (includes link to the dashboard).
 
-## Notes
+## Development notes
 
-This repository currently contains only the frontend prototype. Backend/API integration and persistent storage can be added later as the next step.
+- The feedback modal is triggered by the dislike button and collects both preset reasons and freeform details; feedback state is local and cleared on send.
+- The thumbs up/down buttons use official SVG shapes (no external icon dependency).
+- The summarizer currently sets a preview summary locally — replace `handleSummarize` in `HomePage.jsx` with an API call to integrate a real summarization backend.
+
+If you'd like, I can add a short section with example API request payloads and expected responses to help wire a server endpoint.
