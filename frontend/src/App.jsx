@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import DashboardPage from './pages/DashboardPage'
 
 function App() {
   return (
@@ -12,16 +13,24 @@ function App() {
       <HistoryProvider>
         <BrowserRouter>
         <Routes>
-        <Route
-          path="/"
-          element={
-            <Layout>
-              <HomePage />
-            </Layout>
-          }
-        />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
+          <Route
+            path="/"
+            element={
+              <Layout>
+                <HomePage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <Layout>
+                <DashboardPage />
+              </Layout>
+            }
+          />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
         </Routes>
       </BrowserRouter>
       </HistoryProvider>

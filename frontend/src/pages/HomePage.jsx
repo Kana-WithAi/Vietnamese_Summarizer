@@ -11,9 +11,18 @@ function HomePage() {
   const [inputText, setInputText] = useState('')
   const [summary, setSummary] = useState('')
   const [outputFormat, setOutputFormat] = useState('paragraph')
+  const [mode, setMode] = useState('summary')
   const [lengthIndex, setLengthIndex] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackOptions, setFeedbackOptions] = useState({
+    incoherent: false,
+    grammar: false,
+    spelling: false,
+    excuse: false,
+  })
 
   const inputStats = countTextStats(inputText)
   const outputStats = countTextStats(summary)
@@ -46,22 +55,28 @@ function HomePage() {
     if (!inputText.trim()) return
     setIsLoading(true)
 
-    // Placeholder — connect to summarizer API with outputFormat & LENGTH_MAP[lengthIndex]
+    // Placeholder — connect to summarizer API with mode, outputFormat & LENGTH_MAP[lengthIndex]
     await new Promise((resolve) => setTimeout(resolve, 800))
 
     const lengthLabel = t(`controls.${LENGTH_MAP[lengthIndex]}`).toLowerCase()
-    const placeholder =
-      lang === 'vi'
-        ? `[${lengthLabel}] `
-        : `[${lengthLabel}] `
+    const modeLabel = t(`controls.${mode}`)
+    const placeholder = `[${modeLabel}] `
+    const previewIntro =
+      mode === 'extract'
+        ? lang === 'vi'
+          ? 'Mẫu trích xuất thông tin từ văn bản của bạn'
+          : 'Extraction preview from your text'
+        : lang === 'vi'
+          ? 'Mẫu tóm tắt văn bản của bạn'
+          : 'Summary preview of your text'
 
     if (outputFormat === 'bullet') {
       setSummary(
-        `${placeholder}Summary preview:\n• Key point one from your text\n• Key point two from your text\n• Key point three from your text`,
+        `${placeholder}${previewIntro}:\n• Key point one from your text\n• Key point two from your text\n• Key point three from your text`,
       )
     } else {
       setSummary(
-        `${placeholder}This is a preview summary of your text. Connect the API to generate real results based on your selected length and format.`,
+        `${placeholder}${previewIntro}. Connect the API to generate real results based on your selected mode, length, and format.`,
       )
     }
     setIsLoading(false)
@@ -72,6 +87,25 @@ function HomePage() {
     await navigator.clipboard.writeText(summary)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const toggleFeedbackOption = (option) => {
+    setFeedbackOptions((prev) => ({
+      ...prev,
+      [option]: !prev[option],
+    }))
+  }
+
+  const handleSendFeedback = () => {
+    if (!summary) return
+    setIsFeedbackOpen(false)
+    setFeedbackText('')
+    setFeedbackOptions({
+      incoherent: false,
+      grammar: false,
+      spelling: false,
+      excuse: false,
+    })
   }
 
   const handleDownload = () => {
@@ -107,29 +141,54 @@ function HomePage() {
 
       {/* Controls */}
       <section className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-raised/60 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-          <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            {t('controls.outputFormat')}
-          </span>
-          <div className="flex rounded-xl border border-surface-border bg-surface-base p-1">
-            {['paragraph', 'bulletPoints'].map((format) => {
-              const value = format === 'bulletPoints' ? 'bullet' : 'paragraph'
-              const isActive = outputFormat === value
-              return (
-                <button
-                  key={format}
-                  type="button"
-                  onClick={() => setOutputFormat(value)}
-                  className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-                    isActive
-                      ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {t(`controls.${format}`)}
-                </button>
-              )
-            })}
+        <div className="flex flex-col gap-4 sm:min-w-[280px]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+              {t('controls.outputFormat')}
+            </span>
+            <div className="flex rounded-xl border border-surface-border bg-surface-base p-1">
+              {['paragraph', 'bulletPoints'].map((format) => {
+                const value = format === 'bulletPoints' ? 'bullet' : 'paragraph'
+                const isActive = outputFormat === value
+                return (
+                  <button
+                    key={format}
+                    type="button"
+                    onClick={() => setOutputFormat(value)}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${isActive
+                        ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
+                        : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                  >
+                    {t(`controls.${format}`)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+              {t('controls.mode')}
+            </span>
+            <div className="flex rounded-xl border border-surface-border bg-surface-base p-1">
+              {['summary', 'extract'].map((option) => {
+                const isActive = mode === option
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setMode(option)}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${isActive
+                        ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
+                        : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                  >
+                    {t(`controls.${option}`)}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 
@@ -232,9 +291,8 @@ function HomePage() {
         <div className="flex min-h-[550px] flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-raised shadow-xl shadow-black/20">
           <div className="relative flex-1">
             <div
-              className={`h-full min-h-[400px] overflow-y-auto px-4 py-3 text-sm leading-relaxed lg:min-h-[440px] ${
-                summary ? 'text-slate-200' : 'text-slate-600'
-              }`}
+              className={`h-full min-h-[400px] overflow-y-auto px-4 py-3 text-sm leading-relaxed lg:min-h-[440px] ${summary ? 'text-slate-200' : 'text-slate-600'
+                }`}
             >
               {summary || t('output.placeholder')}
             </div>
@@ -246,7 +304,53 @@ function HomePage() {
               {t('input.sentences')}
             </span>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {summary && (
+                <>
+                  <span className="hidden text-xs text-slate-400 sm:block">{t('output.rateSummary')}</span>
+                  {/* Thumbs Up Button */}
+                  <button
+                    type="button"
+                    onClick={() => { }}
+                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-accent"
+                    aria-label={t('output.like')}
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M7 10v12" />
+                      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+                    </svg>
+                  </button>
+
+                  {/* Thumbs Down Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsFeedbackOpen(true)}
+                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-red-400"
+                    aria-label={t('output.dislike')}
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M17 14V2" />
+                      <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
+                    </svg>
+                  </button>
+                </>
+              )}
               <ActionButton
                 label={copied ? t('output.copied') : t('output.copy')}
                 onClick={handleCopy}
@@ -312,6 +416,79 @@ function HomePage() {
           <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
         </button>
       </div>
+
+      {isFeedbackOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
+          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl">
+            <div className="flex items-center justify-between border-b border-surface-border px-6 py-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('feedback.title')}</p>
+                <h2 className="text-2xl font-semibold text-white">{t('feedback.header')}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFeedbackOpen(false)}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <div className="space-y-3 rounded-3xl bg-surface-base p-4">
+                <p className="text-sm font-semibold text-slate-200">{t('feedback.whyUnhappy')}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { key: 'incoherent', label: t('feedback.optionIncoherent') },
+                    { key: 'grammar', label: t('feedback.optionGrammar') },
+                    { key: 'spelling', label: t('feedback.optionSpelling') },
+                    { key: 'excuse', label: t('feedback.optionExcuse') },
+                  ].map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => toggleFeedbackOption(option.key)}
+                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${feedbackOptions[option.key]
+                          ? 'border-accent bg-accent/10 text-white'
+                          : 'border-surface-border bg-surface-base text-slate-300 hover:border-slate-400'
+                        }`}
+                    >
+                      <span className={`h-4 w-4 rounded-full border ${feedbackOptions[option.key] ? 'border-accent bg-accent' : 'border-slate-500'}`} />
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
+                  {t('feedback.detailsLabel')}
+                </label>
+                <textarea
+                  id="feedback-detail"
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  rows={4}
+                  placeholder={t('feedback.placeholder')}
+                  className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-surface-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-slate-400">{t('feedback.note')}</span>
+              <button
+                type="button"
+                onClick={handleSendFeedback}
+                disabled={!summary}
+                className="inline-flex items-center justify-center rounded-3xl bg-accent px-5 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:opacity-40"
+              >
+                {t('feedback.send')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
