@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { countTextStats } from '../utils/textStats'
+import { jsPDF } from 'jspdf'
+import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
 
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
 
@@ -15,6 +17,10 @@ function HomePage() {
   const [lengthIndex, setLengthIndex] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [downloadFormat, setDownloadFormat] = useState('txt')
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const downloadToggleRef = useRef(null)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackOptions, setFeedbackOptions] = useState({
@@ -106,15 +112,105 @@ function HomePage() {
     })
   }
 
-  const handleDownload = () => {
+  const handleDownload = (ext = downloadFormat) => {
     if (!summary) return
-    const blob = new Blob([summary], { type: 'text/plain' })
+    const selectedExt = ext || 'txt'
+    if (selectedExt === 'pdf') {
+      generatePDF()
+      return
+    }
+    if (selectedExt === 'docx') {
+      generateDocx()
+      return
+    }
+
+    let content = summary
+    let mime = 'text/plain'
+
+    if (selectedExt === 'md') {
+      mime = 'text/markdown'
+      content = `# Summary\n\n${summary}`
+    } else if (selectedExt === 'json') {
+      mime = 'application/json'
+      content = JSON.stringify({ summary, words: outputStats.words, sentences: outputStats.sentences }, null, 2)
+    }
+
+    const blob = new Blob([content], { type: mime })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'summary.txt'
+    anchor.download = `summary.${selectedExt}`
     anchor.click()
     URL.revokeObjectURL(url)
+  }
+
+  const openDownloadMenu = () => {
+    const el = downloadToggleRef.current
+    if (!el) {
+      setDownloadMenuOpen(true)
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const menuWidth = 220
+    setMenuPosition({ top: rect.bottom + window.scrollY + 6, left: Math.max(8, rect.right + window.scrollX - menuWidth) })
+    setDownloadMenuOpen(true)
+  }
+
+  const generatePDF = () => {
+    try {
+      const doc = new jsPDF()
+      const lineHeight = 10
+      const margin = 10
+      const pageWidth = doc.internal.pageSize.getWidth() - margin * 2
+      const lines = doc.splitTextToSize(summary, pageWidth)
+      doc.setFontSize(12)
+      doc.text(lines, margin, margin + 5)
+      const blob = doc.output('blob')
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'summary.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      // fallback: download as txt with .pdf extension
+      const blob = new Blob([summary], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'summary.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  const generateDocx = async () => {
+    try {
+      const doc = new DocxDocument({
+        sections: [
+          {
+            properties: {},
+            children: [new Paragraph({ children: [new TextRun(summary)] })],
+          },
+        ],
+      })
+      const blob = await Packer.toBlob(doc)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'summary.docx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      // fallback to txt
+      const blob = new Blob([summary], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'summary.docx'
+      a.click()
+      URL.revokeObjectURL(url)
+    }
   }
 
   const handleSpeak = () => {
@@ -360,13 +456,50 @@ function HomePage() {
                   d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
                 />
               </ActionButton>
-              <ActionButton label={t('output.download')} onClick={handleDownload} disabled={!summary}>
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </ActionButton>
+              <div className="ml-2">
+                <button
+                  ref={downloadToggleRef}
+                  type="button"
+                  onClick={() => { if (!downloadMenuOpen) openDownloadMenu(); else setDownloadMenuOpen(false) }}
+                  aria-haspopup="true"
+                  aria-expanded={downloadMenuOpen}
+                  className="flex items-center gap-2 rounded-md bg-surface-base px-3 py-2 text-sm text-slate-300 hover:bg-surface-elevated"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v13" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 12l7 7 7-7" />
+                  </svg>
+                  <svg className="h-3 w-3" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 8l4 4 4-4" />
+                  </svg>
+                </button>
+
+                {downloadMenuOpen && (
+                  <div
+                    style={{ position: 'fixed', top: `${menuPosition.top}px`, left: `${menuPosition.left}px`, zIndex: 9999, width: 220 }}
+                    className="rounded-md border border-surface-border bg-surface-raised shadow-lg"
+                  >
+                    <ul className="py-1">
+                      {[
+                        { key: 'pdf', label: 'PDF Document (.pdf)' },
+                        { key: 'docx', label: 'Word Document (.docx)' },
+                        { key: 'txt', label: 'Plain Text (.txt)' },
+                        { key: 'json', label: 'JSON Data (.json)' },
+                      ].map((opt) => (
+                        <li key={opt.key}>
+                          <button
+                            type="button"
+                            onClick={() => { setDownloadFormat(opt.key); setDownloadMenuOpen(false); setTimeout(() => handleDownload(opt.key), 10) }}
+                            className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-surface-base"
+                          >
+                            {opt.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
               <ActionButton label={t('output.speak')} onClick={handleSpeak} disabled={!summary}>
                 <path
                   strokeLinecap="round"
@@ -375,6 +508,11 @@ function HomePage() {
                 />
               </ActionButton>
             </div>
+            {copied && (
+              <div className="mt-3 rounded-2xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                {t('output.copied')}
+              </div>
+            )}
           </div>
         </div>
       </section>
