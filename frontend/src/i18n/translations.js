@@ -47,6 +47,9 @@ export const translations = {
       rateSummary: 'Rate this summary',
       like: 'Like',
       dislike: 'Dislike',
+      fileName : 'File Name',
+      format : 'Format',
+      download : 'Download'
     },
     feedback: {
       title: 'Feedback form',
@@ -119,7 +122,7 @@ export const translations = {
     },
   },
   vi: {
-    appName: 'Vietnamese Summarizer',
+    appName: 'Tóm tắt Tiếng Việt',
     nav: {
       pricing: 'Bảng giá',
       history: 'Lịch sử',
@@ -134,7 +137,7 @@ export const translations = {
       signup: 'Đăng ký',
     },
     hero: {
-      title: 'Vietnamese Summarizer',
+      title: 'Tóm tắt Tiếng Việt',
       subtitle: 'Biến văn bản dài thành bản tóm tắt ngắn gọn trong vài giây',
     },
     controls: {
@@ -166,6 +169,10 @@ export const translations = {
       rateSummary: 'Đánh giá tóm tắt',
       like: 'Thích',
       dislike: 'Không thích',
+      fileName : 'Tên tệp',
+      format : 'Định dạng',
+      download : 'Tải'
+      
     },
     feedback: {
       title: 'Mẫu phản hồi',

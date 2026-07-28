@@ -18,6 +18,7 @@ function HomePage() {
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [downloadFormat, setDownloadFormat] = useState('txt')
+  const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
@@ -112,15 +113,24 @@ function HomePage() {
     })
   }
 
-  const handleDownload = (ext = downloadFormat) => {
+  const buildDownloadFileName = (ext, customName = downloadName) => {
+    const trimmedName = (customName || 'summary').trim().replace(/[\\/:*?"<>|]+/g, '').trim()
+    const baseName = trimmedName || 'summary'
+    const normalizedExt = ext.toLowerCase()
+    return baseName.endsWith(`.${normalizedExt}`) ? baseName : `${baseName}.${normalizedExt}`
+  }
+
+  const handleDownload = (ext = downloadFormat, name = downloadName) => {
     if (!summary) return
     const selectedExt = ext || 'txt'
+    const fileName = buildDownloadFileName(selectedExt, name)
+
     if (selectedExt === 'pdf') {
-      generatePDF()
+      generatePDF(fileName)
       return
     }
     if (selectedExt === 'docx') {
-      generateDocx()
+      generateDocx(fileName)
       return
     }
 
@@ -130,16 +140,13 @@ function HomePage() {
     if (selectedExt === 'md') {
       mime = 'text/markdown'
       content = `# Summary\n\n${summary}`
-    } else if (selectedExt === 'json') {
-      mime = 'application/json'
-      content = JSON.stringify({ summary, words: outputStats.words, sentences: outputStats.sentences }, null, 2)
     }
 
     const blob = new Blob([content], { type: mime })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `summary.${selectedExt}`
+    anchor.download = fileName
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -151,15 +158,14 @@ function HomePage() {
       return
     }
     const rect = el.getBoundingClientRect()
-    const menuWidth = 220
+    const menuWidth = 260
     setMenuPosition({ top: rect.bottom + window.scrollY + 6, left: Math.max(8, rect.right + window.scrollX - menuWidth) })
     setDownloadMenuOpen(true)
   }
 
-  const generatePDF = () => {
+  const generatePDF = (fileName = 'summary.pdf') => {
     try {
       const doc = new jsPDF()
-      const lineHeight = 10
       const margin = 10
       const pageWidth = doc.internal.pageSize.getWidth() - margin * 2
       const lines = doc.splitTextToSize(summary, pageWidth)
@@ -169,7 +175,7 @@ function HomePage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'summary.pdf'
+      a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -178,13 +184,13 @@ function HomePage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'summary.pdf'
+      a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
     }
   }
 
-  const generateDocx = async () => {
+  const generateDocx = async (fileName = 'summary.docx') => {
     try {
       const doc = new DocxDocument({
         sections: [
@@ -198,7 +204,7 @@ function HomePage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'summary.docx'
+      a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -207,7 +213,7 @@ function HomePage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'summary.docx'
+      a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
     }
@@ -249,10 +255,11 @@ function HomePage() {
                     key={format}
                     type="button"
                     onClick={() => setOutputFormat(value)}
-                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${isActive
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+                      isActive
                         ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
                         : 'text-slate-400 hover:text-slate-200'
-                      }`}
+                    }`}
                   >
                     {t(`controls.${format}`)}
                   </button>
@@ -273,10 +280,11 @@ function HomePage() {
                     key={option}
                     type="button"
                     onClick={() => setMode(option)}
-                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${isActive
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+                      isActive
                         ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
                         : 'text-slate-400 hover:text-slate-200'
-                      }`}
+                    }`}
                   >
                     {t(`controls.${option}`)}
                   </button>
@@ -385,8 +393,9 @@ function HomePage() {
         <div className="flex min-h-[550px] flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-raised shadow-xl shadow-black/20">
           <div className="relative flex-1">
             <div
-              className={`h-full min-h-[400px] overflow-y-auto px-4 py-3 text-sm leading-relaxed lg:min-h-[440px] ${summary ? 'text-slate-200' : 'text-slate-600'
-                }`}
+              className={`h-full min-h-[400px] overflow-y-auto px-4 py-3 text-sm leading-relaxed lg:min-h-[440px] ${
+                summary ? 'text-slate-200' : 'text-slate-600'
+              }`}
             >
               {summary || t('output.placeholder')}
             </div>
@@ -476,27 +485,65 @@ function HomePage() {
 
                 {downloadMenuOpen && (
                   <div
-                    style={{ position: 'fixed', top: `${menuPosition.top}px`, left: `${menuPosition.left}px`, zIndex: 9999, width: 220 }}
-                    className="rounded-md border border-surface-border bg-surface-raised shadow-lg"
+                    style={{
+                      position: 'fixed',
+                      top: `${menuPosition.top}px`,
+                      left: `${menuPosition.left}px`,
+                      zIndex: 9999,
+                      width: 260,
+                    }}
+                    className="rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl backdrop-blur-md"
                   >
-                    <ul className="py-1">
-                      {[
-                        { key: 'pdf', label: 'PDF Document (.pdf)' },
-                        { key: 'docx', label: 'Word Document (.docx)' },
-                        { key: 'txt', label: 'Plain Text (.txt)' },
-                        { key: 'json', label: 'JSON Data (.json)' },
-                      ].map((opt) => (
-                        <li key={opt.key}>
-                          <button
-                            type="button"
-                            onClick={() => { setDownloadFormat(opt.key); setDownloadMenuOpen(false); setTimeout(() => handleDownload(opt.key), 10) }}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-surface-base"
-                          >
-                            {opt.label}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="space-y-3">
+                      {/* File Name Input */}
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                          {t('output.fileName')}
+                        </label>
+                        <input
+                          type="text"
+                          value={downloadName}
+                          onChange={(e) => setDownloadName(e.target.value)}
+                          placeholder={t('output.fileNamePlaceholder')}
+                          className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Format Options */}
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                          {t('output.format')}
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {['pdf', 'docx', 'txt', 'md'].map((fmt) => (
+                            <button
+                              key={fmt}
+                              type="button"
+                              onClick={() => setDownloadFormat(fmt)}
+                              className={`rounded-md py-1.5 text-xs font-semibold uppercase transition ${
+                                downloadFormat === fmt
+                                  ? 'bg-accent text-surface-base'
+                                  : 'bg-surface-base text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              .{fmt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Download Action */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleDownload(downloadFormat, downloadName)
+                          setDownloadMenuOpen(false)
+                        }}
+                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 hover:bg-accent-hover transition"
+                      >
+                        {t('output.download')}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -584,10 +631,11 @@ function HomePage() {
                       key={option.key}
                       type="button"
                       onClick={() => toggleFeedbackOption(option.key)}
-                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${feedbackOptions[option.key]
+                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${
+                        feedbackOptions[option.key]
                           ? 'border-accent bg-accent/10 text-white'
                           : 'border-surface-border bg-surface-base text-slate-300 hover:border-slate-400'
-                        }`}
+                      }`}
                     >
                       <span className={`h-4 w-4 rounded-full border ${feedbackOptions[option.key] ? 'border-accent bg-accent' : 'border-slate-500'}`} />
                       <span>{option.label}</span>
