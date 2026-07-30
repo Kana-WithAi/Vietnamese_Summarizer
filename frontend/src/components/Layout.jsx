@@ -37,16 +37,16 @@ function Layout({ children }) {
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
-            {['pricing', 'history', 'bookmark'].map((item) => (
+            <Link
+              to="/pricing"
+              className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"
+            >
+              {t('nav.pricing')}
+            </Link>
+            {['history', 'bookmark'].map((item) => (
               <button
                 key={item}
-                onClick={
-                  item === 'history'
-                    ? openHistory
-                    : item === 'bookmark'
-                    ? () => setIsBookmarkOpen(true)
-                    : undefined
-                }
+                onClick={item === 'history' ? openHistory : () => setIsBookmarkOpen(true)}
                 className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"
               >
                 {t(`nav.${item}`)}

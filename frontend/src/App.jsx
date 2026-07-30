@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
 import ProfilePage from './pages/ProfilePage'
+import PricingPage from './pages/PricingPage'
 
 function App() {
   return (
@@ -35,6 +36,14 @@ function App() {
             element={
               <Layout>
                 <ProfilePage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/pricing"
+            element={
+              <Layout>
+                <PricingPage />
               </Layout>
             }
           />
