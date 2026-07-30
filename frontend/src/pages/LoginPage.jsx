@@ -105,12 +105,12 @@ function LoginPage() {
             />
             Ghi nhớ đăng nhập
           </label>
-          <a
-            href="#"
+          <Link
+            to="/reset-password"
             className="text-sm font-medium text-accent-600 transition hover:text-accent-700"
           >
             Quên mật khẩu?
-          </a>
+          </Link>
         </div>
 
         {submitError && (

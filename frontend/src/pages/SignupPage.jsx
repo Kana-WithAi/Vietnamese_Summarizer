@@ -64,7 +64,7 @@ function SignupPage() {
         email: form.email.trim(),
         password: form.password,
       })
-      navigate('/login')
+      navigate('/verify-email', { state: { email: form.email.trim() } })
     } catch (error) {
       setSubmitError(error.message || 'Đăng ký thất bại. Vui lòng thử lại.')
     } finally {

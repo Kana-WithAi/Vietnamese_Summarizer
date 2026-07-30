@@ -8,6 +8,9 @@ import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
 import ProfilePage from './pages/ProfilePage'
 import PricingPage from './pages/PricingPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
+import ResetPasswordConfirmPage from './pages/ResetPasswordConfirmPage'
 
 function App() {
   return (
@@ -49,6 +52,9 @@ function App() {
           />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/reset-password/confirm" element={<ResetPasswordConfirmPage />} />
         </Routes>
       </BrowserRouter>
       </HistoryProvider>

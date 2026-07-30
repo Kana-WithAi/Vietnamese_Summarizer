@@ -35,7 +35,7 @@ function ProfilePage() {
         const response = await authApi.me()
         const user = response?.user || response?.data?.user || response?.data || response
         const nextProfile = {
-          displayName: user?.name || user?.fullName || user?.displayName || user?.email?.split('@')[0] || '',
+          displayName: user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || '',
           email: user?.email || '',
           role: user?.role || 'Member',
           plan: user?.plan || 'Free',
