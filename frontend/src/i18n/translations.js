@@ -125,22 +125,22 @@ export const translations = {
       perMonth: 'per month',
       getStarted: 'Get started',
       plans: {
-        basic: {
-          name: 'Basic',
+        free: {
+          name: 'Free',
           price: '$0',
           feature1: 'Up to 20 summaries per day',
           feature2: 'TXT export support',
           feature3: 'Community support',
         },
-        intermidiate: {
-          name: 'Intermidiate',
+        pro: {
+          name: 'Pro',
           price: '$9',
           feature1: 'Up to 200 summaries per day',
           feature2: 'PDF, DOCX, and TXT export',
           feature3: 'Priority email support',
         },
-        pro: {
-          name: 'Pro',
+        max: {
+          name: 'Max',
           price: '$29',
           feature1: 'Unlimited summaries',
           feature2: 'Advanced quality controls',
@@ -279,22 +279,22 @@ export const translations = {
       perMonth: 'mỗi tháng',
       getStarted: 'Bắt đầu',
       plans: {
-        basic: {
-          name: 'Basic',
+        free: {
+          name: 'Free',
           price: '$0',
           feature1: 'Tối đa 20 bản tóm tắt mỗi ngày',
           feature2: 'Hỗ trợ xuất TXT',
           feature3: 'Hỗ trợ cộng đồng',
         },
-        intermidiate: {
-          name: 'Intermidiate',
+        pro: {
+          name: 'Pro',
           price: '$9',
           feature1: 'Tối đa 200 bản tóm tắt mỗi ngày',
           feature2: 'Hỗ trợ xuất PDF, DOCX và TXT',
           feature3: 'Hỗ trợ email ưu tiên',
         },
-        pro: {
-          name: 'Pro',
+        max: {
+          name: 'Max',
           price: '$29',
           feature1: 'Tóm tắt không giới hạn',
           feature2: 'Tinh chỉnh chất lượng nâng cao',

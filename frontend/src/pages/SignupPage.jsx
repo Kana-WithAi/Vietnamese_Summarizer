@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
+import { authApi } from '../utils/api'
 
 function SignupPage() {
+  const navigate = useNavigate()
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -12,6 +14,8 @@ function SignupPage() {
   })
   const [errors, setErrors] = useState({})
   const [agreed, setAgreed] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
@@ -42,15 +46,30 @@ function SignupPage() {
     return next
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     const next = validate()
     if (Object.keys(next).length > 0) {
       setErrors(next)
+      setSubmitError('')
       return
     }
-    // Connect to auth API here
-    console.log('Signup:', form)
+
+    setIsSubmitting(true)
+    setSubmitError('')
+
+    try {
+      await authApi.register({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      })
+      navigate('/login')
+    } catch (error) {
+      setSubmitError(error.message || 'Đăng ký thất bại. Vui lòng thử lại.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -129,11 +148,18 @@ function SignupPage() {
           )}
         </div>
 
+        {submitError && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {submitError}
+          </p>
+        )}
+
         <button
           type="submit"
-          className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2"
+          disabled={isSubmitting}
+          className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          Tạo tài khoản
+          {isSubmitting ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}
         </button>
       </form>
 

@@ -1,6 +1,6 @@
 import { useLanguage } from '../context/LanguageContext'
 
-const planOrder = ['basic', 'intermidiate', 'pro']
+const planOrder = ['free', 'pro', 'max']
 
 function PricingPage() {
   const { t } = useLanguage()
@@ -15,7 +15,7 @@ function PricingPage() {
 
       <section className="grid gap-5 md:grid-cols-3">
         {planOrder.map((planKey) => {
-          const isFeatured = planKey === 'intermidiate'
+          const isFeatured = planKey === 'pro'
           return (
             <article
               key={planKey}

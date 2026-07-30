@@ -10,10 +10,17 @@ function Layout({ children }) {
   const { t } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
+  const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
   return (
     <div className="flex min-h-screen flex-col bg-surface-base">
-      <header className="sticky top-0 z-50 border-b border-surface-border/80 bg-surface-base/80 backdrop-blur-xl">
+      <header
+        className={`sticky top-0 z-50 border-b backdrop-blur-xl transition ${
+          isOverlayOpen
+            ? 'pointer-events-none border-transparent bg-transparent opacity-40'
+            : 'border-surface-border/80 bg-surface-base/80'
+        }`}
+      >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link to="/" className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/15 ring-1 ring-accent/30">
