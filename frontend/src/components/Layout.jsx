@@ -1,16 +1,68 @@
-import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
+import { authApi } from '../utils/api'
 import LanguageSwitcher from './LanguageSwitcher'
 import HistoryOverlay from './HistoryOverlay'
 import BookmarkOverlay from './BookmarkOverlay'
 
 function Layout({ children }) {
+  const navigate = useNavigate()
   const { t } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userName, setUserName] = useState('')
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
+
+  const syncAuthState = async () => {
+    const token = localStorage.getItem('accessToken')
+
+    if (!token) {
+      setIsAuthenticated(false)
+      setUserName('')
+      return
+    }
+
+    try {
+      const response = await authApi.me()
+      const user = response?.user || response?.data?.user || response?.data || response
+      const nextName = user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email || ''
+      setIsAuthenticated(true)
+      setUserName(nextName)
+    } catch {
+      localStorage.removeItem('accessToken')
+      localStorage.removeItem('rememberMe')
+      setIsAuthenticated(false)
+      setUserName('')
+    }
+  }
+
+  useEffect(() => {
+    syncAuthState()
+
+    const handleAuthUpdate = () => {
+      syncAuthState()
+    }
+
+    window.addEventListener('auth:updated', handleAuthUpdate)
+    return () => window.removeEventListener('auth:updated', handleAuthUpdate)
+  }, [])
+
+  const handleAuthAction = () => {
+    if (isAuthenticated) {
+      localStorage.removeItem('accessToken')
+      localStorage.removeItem('rememberMe')
+      setIsAuthenticated(false)
+      setUserName('')
+      window.dispatchEvent(new Event('auth:updated'))
+      navigate('/')
+      return
+    }
+
+    navigate('/login')
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-surface-base">
@@ -65,26 +117,6 @@ function Layout({ children }) {
             <LanguageSwitcher />
 
             <Link
-              to="/dashboard"
-              className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200 sm:flex"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-              {t('nav.dashboard')}
-            </Link>
-
-            <Link
               to="/profile"
               className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200 sm:flex"
             >
@@ -101,15 +133,16 @@ function Layout({ children }) {
                   d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
                 />
               </svg>
-              {t('nav.myAccount')}
+              {isAuthenticated ? userName || t('nav.myAccount') : t('nav.myAccount')}
             </Link>
 
-            <Link
-              to="/signup"
+            <button
+              type="button"
+              onClick={handleAuthAction}
               className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover sm:px-4"
             >
-              {t('nav.signup')}
-            </Link>
+              {isAuthenticated ? 'Sign out' : t('nav.login')}
+            </button>
           </div>
         </div>
       </header>

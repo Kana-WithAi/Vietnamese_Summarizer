@@ -56,6 +56,7 @@ function LoginPage() {
         } else {
           localStorage.removeItem('rememberMe')
         }
+        window.dispatchEvent(new Event('auth:updated'))
       }
 
       navigate('/')
