@@ -60,6 +60,7 @@ function SignupPage() {
 
     try {
       await authApi.register({
+        full_name: form.name.trim(),
         name: form.name.trim(),
         email: form.email.trim(),
         password: form.password,
