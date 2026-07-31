@@ -56,8 +56,14 @@ function ResetPasswordConfirmPage() {
     setSubmitError('')
 
     try {
-      await authApi.verifyResetOtp({ email, otp: form.otp.trim() })
-      await authApi.resetPassword({ email, otp: form.otp.trim(), newPassword: form.password })
+      const verifyResponse = await authApi.verifyResetOtp({ email, otp: form.otp.trim() })
+      const resetToken = verifyResponse?.data?.reset_token || verifyResponse?.reset_token || verifyResponse?.token
+
+      if (!resetToken) {
+        throw new Error('The server did not return a reset token. Please try again.')
+      }
+
+      await authApi.resetPassword({ reset_token: resetToken, new_password: form.password })
       navigate('/login')
     } catch (error) {
       setSubmitError(error.message || 'Unable to reset password. Please try again.')
