@@ -1,0 +1,104 @@
+const DEFAULT_API_BASE_URL = '/api/v1'
+
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
+
+function getErrorMessage(data) {
+  if (!data) {
+    return 'The request could not be completed.'
+  }
+
+  if (typeof data === 'string') {
+    return data
+  }
+
+  if (typeof data === 'object') {
+    const candidates = [data.message, data.error, data.detail, data.msg]
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate
+      }
+
+      if (candidate && typeof candidate === 'object') {
+        const nested = getErrorMessage(candidate)
+        if (nested && nested !== 'The request could not be completed.') {
+          return nested
+        }
+      }
+    }
+
+    try {
+      return JSON.stringify(data)
+    } catch {
+      return 'The request could not be completed.'
+    }
+  }
+
+  return 'The request could not be completed.'
+}
+
+async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
+  const config = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+  }
+
+  if (auth) {
+    const token = localStorage.getItem('accessToken')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+  }
+
+  if (body !== undefined && body !== null) {
+    config.body = JSON.stringify(body)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, config)
+  const contentType = response.headers.get('content-type') || ''
+
+  let data = null
+  if (contentType.includes('application/json')) {
+    data = await response.json()
+  } else {
+    data = await response.text()
+  }
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(data))
+  }
+
+  return data
+}
+
+export const authApi = {
+  login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
+  register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
+  verifyEmail: (payload) => request('/auth/verify-email', { method: 'POST', body: payload }),
+  resendOtp: (payload) => request('/auth/resend-otp', { method: 'POST', body: payload }),
+  forgotPassword: (payload) => request('/auth/forgot-password', { method: 'POST', body: payload }),
+  verifyResetOtp: (payload) => request('/auth/verify-reset-otp', { method: 'POST', body: payload }),
+  resetPassword: (payload) => request('/auth/reset-password', { method: 'POST', body: payload }),
+  me: () => request('/auth/me', { auth: true }),
+}
+
+export const subscriptionsApi = {
+  plans: () => request('/subscriptions/plans'),
+  me: () => request('/subscriptions/me', { auth: true }),
+}
+
+export const summarizeApi = {
+  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: false }),
+  file: (payload) => request('/summarize/file', { method: 'POST', body: payload, auth: false }),
+}
+
+export const historyApi = {
+  list: () => request('/history', { auth: true }),
+  getById: (id) => request(`/history/${id}`, { auth: true }),
+  update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
+  removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
+  removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
+}

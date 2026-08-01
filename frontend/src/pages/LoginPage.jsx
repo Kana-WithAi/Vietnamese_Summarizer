@@ -1,12 +1,18 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
+import { useLanguage } from '../context/LanguageContext'
+import { authApi } from '../utils/api'
 
 function LoginPage() {
+  const { t } = useLanguage()
+  const navigate = useNavigate()
   const [form, setForm] = useState({ email: '', password: '' })
   const [errors, setErrors] = useState({})
   const [remember, setRemember] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
@@ -16,50 +22,76 @@ function LoginPage() {
   const validate = () => {
     const next = {}
     if (!form.email.trim()) {
-      next.email = 'Vui lòng nhập email'
+      next.email = t('loginPage.errors.emptyEmail')
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      next.email = 'Email không hợp lệ'
+      next.email = t('loginPage.errors.invalidEmail')
     }
     if (!form.password) {
-      next.password = 'Vui lòng nhập mật khẩu'
+      next.password = t('loginPage.errors.emptyPassword')
     }
     return next
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     const next = validate()
     if (Object.keys(next).length > 0) {
       setErrors(next)
+      setSubmitError('')
       return
     }
-    // Connect to auth API here
-    console.log('Login:', { ...form, remember })
+
+    setIsSubmitting(true)
+    setSubmitError('')
+
+    try {
+      const response = await authApi.login({
+        email: form.email.trim(),
+        password: form.password,
+      })
+
+      const token = response?.token || response?.accessToken || response?.data?.token
+      if (token) {
+        localStorage.setItem('accessToken', token)
+        if (remember) {
+          localStorage.setItem('rememberMe', 'true')
+        } else {
+          localStorage.removeItem('rememberMe')
+        }
+        window.dispatchEvent(new Event('auth:updated'))
+      }
+
+      navigate('/')
+    } catch (error) {
+      setSubmitError(error.message || t('loginPage.submitError'))
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <AuthLayout
-      title="Chào mừng trở lại"
-      subtitle="Đăng nhập để tiếp tục sử dụng Vietnamese Summarizer"
+      title={t('loginPage.title')}
+      subtitle={t('loginPage.subtitle')}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         <AuthInput
           id="email"
-          label="Email"
+          label={t('loginPage.emailLabel')}
           type="email"
           value={form.email}
           onChange={handleChange('email')}
-          placeholder="name@example.com"
+          placeholder={t('loginPage.emailPlaceholder')}
           autoComplete="email"
           error={errors.email}
         />
 
         <AuthInput
           id="password"
-          label="Mật khẩu"
+          label={t('loginPage.passwordLabel')}
           value={form.password}
           onChange={handleChange('password')}
-          placeholder="••••••••"
+          placeholder={t('loginPage.passwordPlaceholder')}
           autoComplete="current-password"
           error={errors.password}
           showToggle
@@ -73,21 +105,28 @@ function LoginPage() {
               onChange={(event) => setRemember(event.target.checked)}
               className="h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
             />
-            Ghi nhớ đăng nhập
+            {t('loginPage.rememberMe')}
           </label>
-          <a
-            href="#"
+          <Link
+            to="/reset-password"
             className="text-sm font-medium text-accent-600 transition hover:text-accent-700"
           >
-            Quên mật khẩu?
-          </a>
+            {t('loginPage.forgotPassword')}
+          </Link>
         </div>
+
+        {submitError && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {submitError}
+          </p>
+        )}
 
         <button
           type="submit"
-          className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2"
+          disabled={isSubmitting}
+          className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          Đăng nhập
+          {isSubmitting ? t('loginPage.loadingButton') : t('loginPage.submitButton')}
         </button>
       </form>
 
@@ -96,7 +135,7 @@ function LoginPage() {
           <div className="w-full border-t border-surface-border" />
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="bg-surface-base px-3 text-slate-500">hoặc</span>
+          <span className="bg-surface-base px-3 text-slate-500">{t('loginPage.divider')}</span>
         </div>
       </div>
 
@@ -137,12 +176,12 @@ function LoginPage() {
       </div>
 
       <p className="mt-8 text-center text-sm text-slate-600">
-        Chưa có tài khoản?{' '}
+        {t('loginPage.noAccount')}{' '}
         <Link
           to="/signup"
           className="font-semibold text-accent-600 transition hover:text-accent-700"
         >
-          Đăng ký ngay
+          {t('loginPage.signupNow')}
         </Link>
       </p>
     </AuthLayout>

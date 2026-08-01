@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
+import { authApi } from '../utils/api'
 
 const initialProfile = {
-  displayName: 'Mai Văn A',
-  email: 'maivan.a@example.com',
+  displayName: '',
+  email: '',
   role: 'Member',
   plan: 'Free',
 }
@@ -20,6 +21,47 @@ function ProfilePage() {
   })
   const [errors, setErrors] = useState({})
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        setProfile(initialProfile)
+        setFormState((prev) => ({ ...prev, displayName: '', email: '' }))
+        return
+      }
+
+      try {
+        const response = await authApi.me()
+        const user = response?.user || response?.data?.user || response?.data || response
+        const nextProfile = {
+          displayName: user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || '',
+          email: user?.email || '',
+          role: user?.role || 'Member',
+          plan: user?.plan || 'Free',
+        }
+
+        setProfile(nextProfile)
+        setFormState((prev) => ({
+          ...prev,
+          displayName: nextProfile.displayName,
+          email: nextProfile.email,
+        }))
+      } catch {
+        setProfile(initialProfile)
+        setFormState((prev) => ({ ...prev, displayName: '', email: '' }))
+      }
+    }
+
+    loadProfile()
+
+    const handleAuthUpdate = () => {
+      loadProfile()
+    }
+
+    window.addEventListener('auth:updated', handleAuthUpdate)
+    return () => window.removeEventListener('auth:updated', handleAuthUpdate)
+  }, [])
 
   const handleChange = (field) => (event) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }))
