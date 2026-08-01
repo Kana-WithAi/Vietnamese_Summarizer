@@ -2,9 +2,42 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
+import { useLanguage } from '../context/LanguageContext'
 import { authApi } from '../utils/api'
 
+function toFriendlyResetPasswordError(error, t) {
+  const rawMessage = (error?.message || '').trim()
+  const message = rawMessage.toLowerCase()
+
+  if (message.includes('invalid_otp') || message.includes('invalid otp') || message.includes('otp sai')) {
+    return t('resetPassword.confirm.messages.invalidOtp')
+  }
+
+  if (message.includes('otp') && (message.includes('expired') || message.includes('hết hạn'))) {
+    return t('resetPassword.confirm.messages.expiredOtp')
+  }
+
+  if (message.includes('otp_locked') || message.includes('too many') || message.includes('429')) {
+    return t('resetPassword.confirm.messages.otpLocked')
+  }
+
+  if (message.includes('reset token') || message.includes('reset_token')) {
+    return t('resetPassword.confirm.messages.invalidResetToken')
+  }
+
+  if (message.includes('password') && message.includes('short')) {
+    return t('resetPassword.confirm.messages.shortPassword')
+  }
+
+  if (message.includes('network') || message.includes('failed to fetch') || message.includes('timeout')) {
+    return t('resetPassword.confirm.messages.network')
+  }
+
+  return rawMessage || t('resetPassword.confirm.messages.fallback')
+}
+
 function ResetPasswordConfirmPage() {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || ''
@@ -22,17 +55,17 @@ function ResetPasswordConfirmPage() {
     const next = {}
 
     if (!form.otp.trim()) {
-      next.otp = 'Please enter the OTP code.'
+      next.otp = t('resetPassword.confirm.errors.emptyOtp')
     }
 
     if (!form.password) {
-      next.password = 'Please enter a new password.'
+      next.password = t('resetPassword.confirm.errors.emptyPassword')
     } else if (form.password.length < 8) {
-      next.password = 'Password must be at least 8 characters.'
+      next.password = t('resetPassword.confirm.errors.shortPassword')
     }
 
     if (form.password !== form.confirmPassword) {
-      next.confirmPassword = 'Passwords do not match.'
+      next.confirmPassword = t('resetPassword.confirm.errors.mismatchPassword')
     }
 
     return next
@@ -48,7 +81,7 @@ function ResetPasswordConfirmPage() {
     }
 
     if (!email) {
-      setSubmitError('Missing email information. Please start the reset flow again.')
+      setSubmitError(t('resetPassword.confirm.errors.missingEmail'))
       return
     }
 
@@ -60,13 +93,13 @@ function ResetPasswordConfirmPage() {
       const resetToken = verifyResponse?.data?.reset_token || verifyResponse?.reset_token || verifyResponse?.token
 
       if (!resetToken) {
-        throw new Error('The server did not return a reset token. Please try again.')
+        throw new Error(t('resetPassword.confirm.errors.missingResetToken'))
       }
 
       await authApi.resetPassword({ reset_token: resetToken, new_password: form.password })
       navigate('/login')
     } catch (error) {
-      setSubmitError(error.message || 'Unable to reset password. Please try again.')
+      setSubmitError(toFriendlyResetPasswordError(error, t))
     } finally {
       setIsSubmitting(false)
     }
@@ -74,26 +107,26 @@ function ResetPasswordConfirmPage() {
 
   return (
     <AuthLayout
-      title="Reset your password"
-      subtitle="Enter the OTP sent to your email and choose a new password."
+      title={t('resetPassword.confirm.title')}
+      subtitle={t('resetPassword.confirm.subtitle')}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         <AuthInput
           id="otp"
-          label="OTP code"
+          label={t('resetPassword.confirm.otpLabel')}
           value={form.otp}
           onChange={handleChange('otp')}
-          placeholder="Enter code from email"
+          placeholder={t('resetPassword.confirm.otpPlaceholder')}
           autoComplete="one-time-code"
           error={errors.otp}
         />
 
         <AuthInput
           id="password"
-          label="New password"
+          label={t('resetPassword.confirm.passwordLabel')}
           value={form.password}
           onChange={handleChange('password')}
-          placeholder="At least 8 characters"
+          placeholder={t('resetPassword.confirm.passwordPlaceholder')}
           autoComplete="new-password"
           error={errors.password}
           showToggle
@@ -101,10 +134,10 @@ function ResetPasswordConfirmPage() {
 
         <AuthInput
           id="confirmPassword"
-          label="Confirm password"
+          label={t('resetPassword.confirm.confirmPasswordLabel')}
           value={form.confirmPassword}
           onChange={handleChange('confirmPassword')}
-          placeholder="Repeat new password"
+          placeholder={t('resetPassword.confirm.confirmPasswordPlaceholder')}
           autoComplete="new-password"
           error={errors.confirmPassword}
           showToggle
@@ -121,13 +154,13 @@ function ResetPasswordConfirmPage() {
           disabled={isSubmitting}
           className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isSubmitting ? 'Updating...' : 'Update password'}
+          {isSubmitting ? t('resetPassword.confirm.updatingButton') : t('resetPassword.confirm.updateButton')}
         </button>
       </form>
 
       <p className="mt-8 text-center text-sm text-slate-600">
         <Link to="/reset-password" className="font-semibold text-accent-600 transition hover:text-accent-700">
-          Back
+          {t('resetPassword.confirm.back')}
         </Link>
       </p>
     </AuthLayout>

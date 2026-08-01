@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
+import { useLanguage } from '../context/LanguageContext'
 import { authApi } from '../utils/api'
 
 function SignupPage() {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const [form, setForm] = useState({
     name: '',
@@ -25,23 +27,23 @@ function SignupPage() {
   const validate = () => {
     const next = {}
     if (!form.name.trim()) {
-      next.name = 'Vui lòng nhập họ tên'
+      next.name = t('signupPage.errors.emptyName')
     }
     if (!form.email.trim()) {
-      next.email = 'Vui lòng nhập email'
+      next.email = t('signupPage.errors.emptyEmail')
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      next.email = 'Email không hợp lệ'
+      next.email = t('signupPage.errors.invalidEmail')
     }
     if (!form.password) {
-      next.password = 'Vui lòng nhập mật khẩu'
+      next.password = t('signupPage.errors.emptyPassword')
     } else if (form.password.length < 8) {
-      next.password = 'Mật khẩu phải có ít nhất 8 ký tự'
+      next.password = t('signupPage.errors.shortPassword')
     }
     if (form.password !== form.confirmPassword) {
-      next.confirmPassword = 'Mật khẩu xác nhận không khớp'
+      next.confirmPassword = t('signupPage.errors.mismatchPassword')
     }
     if (!agreed) {
-      next.terms = 'Vui lòng đồng ý với điều khoản sử dụng'
+      next.terms = t('signupPage.errors.termsRequired')
     }
     return next
   }
@@ -67,7 +69,7 @@ function SignupPage() {
       })
       navigate('/verify-email', { state: { email: form.email.trim() } })
     } catch (error) {
-      setSubmitError(error.message || 'Đăng ký thất bại. Vui lòng thử lại.')
+      setSubmitError(error.message || t('signupPage.submitError'))
     } finally {
       setIsSubmitting(false)
     }
@@ -75,37 +77,37 @@ function SignupPage() {
 
   return (
     <AuthLayout
-      title="Tạo tài khoản"
-      subtitle="Bắt đầu tóm tắt văn bản miễn phí ngay hôm nay"
+      title={t('signupPage.title')}
+      subtitle={t('signupPage.subtitle')}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         <AuthInput
           id="name"
-          label="Họ và tên"
+          label={t('signupPage.nameLabel')}
           value={form.name}
           onChange={handleChange('name')}
-          placeholder="Nguyễn Văn A"
+          placeholder={t('signupPage.namePlaceholder')}
           autoComplete="name"
           error={errors.name}
         />
 
         <AuthInput
           id="email"
-          label="Email"
+          label={t('signupPage.emailLabel')}
           type="email"
           value={form.email}
           onChange={handleChange('email')}
-          placeholder="name@example.com"
+          placeholder={t('signupPage.emailPlaceholder')}
           autoComplete="email"
           error={errors.email}
         />
 
         <AuthInput
           id="password"
-          label="Mật khẩu"
+          label={t('signupPage.passwordLabel')}
           value={form.password}
           onChange={handleChange('password')}
-          placeholder="Ít nhất 8 ký tự"
+          placeholder={t('signupPage.passwordPlaceholder')}
           autoComplete="new-password"
           error={errors.password}
           showToggle
@@ -113,10 +115,10 @@ function SignupPage() {
 
         <AuthInput
           id="confirmPassword"
-          label="Xác nhận mật khẩu"
+          label={t('signupPage.confirmPasswordLabel')}
           value={form.confirmPassword}
           onChange={handleChange('confirmPassword')}
-          placeholder="Nhập lại mật khẩu"
+          placeholder={t('signupPage.confirmPasswordPlaceholder')}
           autoComplete="new-password"
           error={errors.confirmPassword}
           showToggle
@@ -134,13 +136,13 @@ function SignupPage() {
               className="mt-0.5 h-4 w-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500"
             />
             <span>
-              Tôi đồng ý với{' '}
+              {t('signupPage.termsPrefix')}{' '}
               <a href="#" className="font-medium text-accent-600 hover:text-accent-700">
-                Điều khoản sử dụng
+                {t('signupPage.termsOfUse')}
               </a>{' '}
-              và{' '}
+              {t('signupPage.termsAnd')}{' '}
               <a href="#" className="font-medium text-accent-600 hover:text-accent-700">
-                Chính sách bảo mật
+                {t('signupPage.privacyPolicy')}
               </a>
             </span>
           </label>
@@ -160,7 +162,7 @@ function SignupPage() {
           disabled={isSubmitting}
           className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-surface-base shadow-md shadow-accent-600/25 transition hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isSubmitting ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}
+          {isSubmitting ? t('signupPage.loadingButton') : t('signupPage.submitButton')}
         </button>
       </form>
 
@@ -169,7 +171,7 @@ function SignupPage() {
           <div className="w-full border-t border-surface-border" />
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="bg-surface-base px-3 text-slate-500">hoặc</span>
+          <span className="bg-surface-base px-3 text-slate-500">{t('signupPage.divider')}</span>
         </div>
       </div>
 
@@ -210,12 +212,12 @@ function SignupPage() {
       </div>
 
       <p className="mt-8 text-center text-sm text-slate-600">
-        Đã có tài khoản?{' '}
+        {t('signupPage.haveAccount')}{' '}
         <Link
           to="/login"
           className="font-semibold text-accent-600 transition hover:text-accent-700"
         >
-          Đăng nhập
+          {t('signupPage.loginNow')}
         </Link>
       </p>
     </AuthLayout>
