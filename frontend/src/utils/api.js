@@ -102,8 +102,17 @@ export const summarizeApi = {
 }
 
 export const historyApi = {
-  list: () => request('/history', { auth: true }),
+  list: (params = {}) => {
+    const query = new URLSearchParams()
+
+    if (params.page) query.set('page', String(params.page))
+    if (params.limit) query.set('limit', String(params.limit))
+
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return request(`/history${suffix}`, { auth: true })
+  },
   getById: (id) => request(`/history/${id}`, { auth: true }),
+  updateTitle: (id, title) => request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true }),
   update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
   removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
   removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
