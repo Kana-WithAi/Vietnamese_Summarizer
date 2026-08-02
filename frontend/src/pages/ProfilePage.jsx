@@ -197,6 +197,16 @@ function ProfilePage() {
     return String(transaction?.status || transaction?.payment_status || transaction?.state || '').toLowerCase()
   }
 
+  const getTransactionStatusLabel = (status) => {
+    if (status === 'pending') return t('profile.transactionsStatusPending')
+    if (status === 'paid') return t('profile.transactionsStatusPaid')
+    if (status === 'cancelled') return t('profile.transactionsStatusCancelled')
+    if (status === 'failed') return t('profile.transactionsStatusFailed')
+    if (status === 'completed') return t('profile.transactionsStatusCompleted')
+    if (status === 'success') return t('profile.transactionsStatusSuccess')
+    return status || t('profile.transactionsUnknown')
+  }
+
   const getTransactionAmount = (transaction) => {
     const amount = Number(transaction?.amount || transaction?.payment_amount || transaction?.total_amount || 0)
     try {
@@ -625,10 +635,10 @@ function ProfilePage() {
                       className="rounded-2xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-100 outline-none"
                     >
                       <option value="">{t('profile.transactionsAll')}</option>
-                      <option value="pending">pending</option>
-                      <option value="paid">paid</option>
-                      <option value="failed">failed</option>
-                      <option value="cancelled">cancelled</option>
+                      <option value="pending">{t('profile.transactionsStatusPending')}</option>
+                      <option value="paid">{t('profile.transactionsStatusPaid')}</option>
+                      <option value="failed">{t('profile.transactionsStatusFailed')}</option>
+                      <option value="cancelled">{t('profile.transactionsStatusCancelled')}</option>
                     </select>
                   </div>
                 </div>
@@ -668,7 +678,7 @@ function ProfilePage() {
                             </div>
                             <div className="flex flex-col items-start gap-2 sm:items-end">
                               <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${statusClass}`}>
-                                {status || t('profile.transactionsUnknown')}
+                                {getTransactionStatusLabel(status)}
                               </span>
                               <span className="text-lg font-semibold text-white">{getTransactionAmount(transaction)}</span>
                             </div>
