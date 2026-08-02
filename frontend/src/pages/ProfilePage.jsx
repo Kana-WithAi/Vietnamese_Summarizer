@@ -22,6 +22,8 @@ function ProfilePage() {
   })
   const [errors, setErrors] = useState({})
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -67,6 +69,7 @@ function ProfilePage() {
   const handleChange = (field) => (event) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }))
     setErrors((prev) => ({ ...prev, [field]: '' }))
+    if (saveError) setSaveError('')
   }
 
   const validate = () => {
@@ -91,7 +94,7 @@ function ProfilePage() {
     return next
   }
 
-  const handleSave = (event) => {
+  const handleSave = async (event) => {
     event.preventDefault()
     const nextErrors = validate()
     if (Object.keys(nextErrors).length) {
@@ -100,20 +103,46 @@ function ProfilePage() {
       return
     }
 
-    setProfile((prev) => ({
-      ...prev,
-      displayName: formState.displayName.trim(),
-      email: formState.email.trim(),
-    }))
-    setSaved(true)
-    setFormState((prev) => ({
-      ...prev,
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-    }))
+    const nextDisplayName = formState.displayName.trim()
+    const nextEmail = formState.email.trim()
+    const shouldUpdateName = nextDisplayName !== profile.displayName
+    const shouldChangePassword = Boolean(formState.newPassword || formState.confirmPassword)
 
-    window.setTimeout(() => setSaved(false), 3000)
+    setIsSaving(true)
+    setSaveError('')
+
+    try {
+      if (shouldUpdateName) {
+        await authApi.updateProfile({ full_name: nextDisplayName })
+      }
+
+      if (shouldChangePassword) {
+        await authApi.changePassword({
+          old_password: formState.currentPassword,
+          new_password: formState.newPassword,
+        })
+      }
+
+      setProfile((prev) => ({
+        ...prev,
+        displayName: nextDisplayName,
+        email: nextEmail,
+      }))
+      setSaved(true)
+      setFormState((prev) => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      }))
+
+      window.setTimeout(() => setSaved(false), 3000)
+    } catch (error) {
+      setSaved(false)
+      setSaveError(error?.message || (lang === 'vi' ? 'Không thể cập nhật hồ sơ. Vui lòng thử lại.' : 'Unable to update profile. Please try again.'))
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const menuItems = [
@@ -260,12 +289,15 @@ function ProfilePage() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <button
                         type="submit"
+                        disabled={isSaving}
                         className="inline-flex items-center justify-center rounded-2xl bg-accent px-6 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
                       >
-                        {t('profile.saveChanges')}
+                        {isSaving ? (lang === 'vi' ? 'Đang lưu...' : 'Saving...') : t('profile.saveChanges')}
                       </button>
                       {saved && <p className="text-sm text-emerald-300">{t('profile.savedConfirmation')}</p>}
                     </div>
+
+                    {saveError && <p className="text-sm text-rose-300">{saveError}</p>}
                   </form>
                 </section>
 

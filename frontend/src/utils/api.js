@@ -83,6 +83,8 @@ export const authApi = {
   forgotPassword: (payload) => request('/auth/forgot-password', { method: 'POST', body: payload }),
   verifyResetOtp: (payload) => request('/auth/verify-reset-otp', { method: 'POST', body: payload }),
   resetPassword: (payload) => request('/auth/reset-password', { method: 'POST', body: payload }),
+  changePassword: (payload) => request('/auth/change-password', { method: 'POST', body: payload, auth: true }),
+  updateProfile: (payload) => request('/auth/profile', { method: 'PUT', body: payload, auth: true }),
   me: () => request('/auth/me', { auth: true }),
 }
 
