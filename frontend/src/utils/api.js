@@ -38,10 +38,11 @@ function getErrorMessage(data) {
 }
 
 async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   const config = {
     method,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...headers,
     },
   }
@@ -54,7 +55,7 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 
   if (body !== undefined && body !== null) {
-    config.body = JSON.stringify(body)
+    config.body = isFormData ? body : JSON.stringify(body)
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, config)

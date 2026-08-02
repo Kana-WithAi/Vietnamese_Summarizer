@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
+import { summarizeApi } from '../utils/api'
 import { countTextStats } from '../utils/textStats'
 import { jsPDF } from 'jspdf'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
@@ -17,6 +18,8 @@ function HomePage() {
   const [lengthIndex, setLengthIndex] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [downloadFormat, setDownloadFormat] = useState('txt')
   const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
@@ -55,37 +58,34 @@ function HomePage() {
   const handleClear = () => {
     setInputText('')
     setSummary('')
+    setErrorMessage('')
+    setSuccessMessage('')
   }
 
   const handleSummarize = async () => {
     if (!inputText.trim()) return
+
     setIsLoading(true)
+    setErrorMessage('')
+    setSuccessMessage('')
 
-    // Placeholder — connect to summarizer API with mode, outputFormat & LENGTH_MAP[lengthIndex]
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    try {
+      const response = await summarizeApi.text({ text: inputText })
+      const nextSummary = response?.data?.summary || ''
 
-    const lengthLabel = t(`controls.${LENGTH_MAP[lengthIndex]}`).toLowerCase()
-    const modeLabel = t(`controls.${mode}`)
-    const placeholder = `[${modeLabel}] `
-    const previewIntro =
-      mode === 'extract'
-        ? lang === 'vi'
-          ? 'Mẫu trích xuất thông tin từ văn bản của bạn'
-          : 'Extraction preview from your text'
-        : lang === 'vi'
-          ? 'Mẫu tóm tắt văn bản của bạn'
-          : 'Summary preview of your text'
-
-    if (outputFormat === 'bullet') {
-      setSummary(
-        `${placeholder}${previewIntro}:\n• Key point one from your text\n• Key point two from your text\n• Key point three from your text`,
-      )
-    } else {
-      setSummary(
-        `${placeholder}${previewIntro}. Connect the API to generate real results based on your selected mode, length, and format.`,
-      )
+      if (nextSummary) {
+        setSummary(nextSummary)
+        setSuccessMessage(lang === 'vi' ? 'Tóm tắt hoàn tất thành công.' : 'Summarization completed successfully.')
+        window.setTimeout(() => setSuccessMessage(''), 3000)
+      } else {
+        setSummary(lang === 'vi' ? 'Không nhận được kết quả tóm tắt từ máy chủ.' : 'No summary was returned by the server.')
+      }
+    } catch (error) {
+      setSummary('')
+      setErrorMessage(error?.message || (lang === 'vi' ? 'Không thể kết nối tới dịch vụ tóm tắt.' : 'Unable to reach the summarization service.'))
+    } finally {
+      setIsLoading(false)
     }
-    setIsLoading(false)
   }
 
   const handleCopy = async () => {
@@ -178,8 +178,7 @@ function HomePage() {
       a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
-    } catch (e) {
-      // fallback: download as txt with .pdf extension
+    } catch {
       const blob = new Blob([summary], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -207,8 +206,7 @@ function HomePage() {
       a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
-    } catch (e) {
-      // fallback to txt
+    } catch {
       const blob = new Blob([summary], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -397,7 +395,13 @@ function HomePage() {
                 summary ? 'text-slate-200' : 'text-slate-600'
               }`}
             >
-              {summary || t('output.placeholder')}
+              {errorMessage ? (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300">
+                  {errorMessage}
+                </div>
+              ) : (
+                summary || t('output.placeholder')
+              )}
             </div>
           </div>
 
@@ -565,39 +569,47 @@ function HomePage() {
       </section>
 
       {/* Summarize button */}
-      <div className="flex justify-center pb-4">
-        <button
-          type="button"
-          onClick={handleSummarize}
-          disabled={isEmpty || isLoading}
-          className="group relative min-w-[200px] overflow-hidden rounded-2xl bg-accent px-10 py-4 text-base font-bold text-surface-base shadow-xl shadow-accent/30 transition hover:bg-accent-hover hover:shadow-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none sm:min-w-[260px] sm:text-lg"
-        >
-          <span className="relative z-10 flex items-center justify-center gap-2">
-            {isLoading ? (
-              <>
-                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                ...
-              </>
-            ) : (
-              t('actions.summarize')
-            )}
-          </span>
-          <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
-        </button>
+      <div className="pb-4">
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={handleSummarize}
+            disabled={isEmpty || isLoading}
+            className="group relative min-w-[200px] overflow-hidden rounded-2xl bg-accent px-10 py-4 text-base font-bold text-surface-base shadow-xl shadow-accent/30 transition hover:bg-accent-hover hover:shadow-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none sm:min-w-[260px] sm:text-lg"
+          >
+            <span className="relative z-10 flex items-center justify-center gap-2">
+              {isLoading ? (
+                <>
+                  <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  ...
+                </>
+              ) : (
+                t('actions.summarize')
+              )}
+            </span>
+            <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
+          </button>
+        </div>
+
+        {successMessage && (
+          <div className="mx-auto mt-3 max-w-fit rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">
+            {successMessage}
+          </div>
+        )}
       </div>
 
       {isFeedbackOpen && (
