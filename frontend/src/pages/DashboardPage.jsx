@@ -15,6 +15,14 @@ const stats = [
   { label: 'dashboard.successRate', value: '99.67%', delta: null, helper: 'dashboard.success' },
 ]
 
+const initialUsers = [
+  { id: 'u-001', name: 'Nguyen Van An', email: 'an.nguyen@gmail.com', status: 'active', plan: 'Free' },
+  { id: 'u-002', name: 'Tran Thi Bich', email: 'bich.tran@gmail.com', status: 'banned', plan: 'Pro' },
+  { id: 'u-003', name: 'Le Minh Khoa', email: 'khoa.le@gmail.com', status: 'active', plan: 'Free' },
+  { id: 'u-004', name: 'Pham Thu Ha', email: 'ha.pham@gmail.com', status: 'active', plan: 'Max' },
+  { id: 'u-005', name: 'Do Quang Huy', email: 'huy.do@gmail.com', status: 'banned', plan: 'Pro' },
+]
+
 const formatDate = (value) => {
   if (!value) return ''
   const [year, month, day] = value.split('-')
@@ -26,6 +34,9 @@ function DashboardPage() {
   const [activeNav, setActiveNav] = useState('overview')
   const [filterStartDate, setFilterStartDate] = useState('2026-07-12')
   const [filterEndDate, setFilterEndDate] = useState('2026-07-18')
+  const [users, setUsers] = useState(initialUsers)
+  const [nameFilter, setNameFilter] = useState('')
+  const [emailFilter, setEmailFilter] = useState('')
 
   const renderFeedbackChart = () => (
     <div className="rounded-3xl border border-surface-border bg-surface-raised p-5 shadow-sm shadow-black/10">
@@ -56,6 +67,110 @@ function DashboardPage() {
       </div>
     </div>
   )
+
+  const renderUserManagement = () => {
+    const normalizedNameFilter = nameFilter.trim().toLowerCase()
+    const normalizedEmailFilter = emailFilter.trim().toLowerCase()
+
+    const filteredUsers = users.filter((user) => {
+      const matchesName = !normalizedNameFilter || user.name.toLowerCase().includes(normalizedNameFilter)
+      const matchesEmail = !normalizedEmailFilter || user.email.toLowerCase().includes(normalizedEmailFilter)
+      return matchesName && matchesEmail
+    })
+
+    const handleToggleBan = (userId) => {
+      setUsers((prev) =>
+        prev.map((user) =>
+          user.id === userId
+            ? { ...user, status: user.status === 'banned' ? 'active' : 'banned' }
+            : user,
+        ),
+      )
+    }
+
+    return (
+      <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
+        <div className="flex flex-col gap-2">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.userManagement')}</p>
+          <h2 className="text-xl font-semibold text-white">{t('dashboard.userManagementTitle')}</h2>
+          <p className="text-sm text-slate-400">{t('dashboard.userManagementSubtitle')}</p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">{t('dashboard.filterByName')}</span>
+            <input
+              type="text"
+              value={nameFilter}
+              onChange={(event) => setNameFilter(event.target.value)}
+              placeholder={t('dashboard.namePlaceholder')}
+              className="w-full rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-accent"
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">{t('dashboard.filterByEmail')}</span>
+            <input
+              type="text"
+              value={emailFilter}
+              onChange={(event) => setEmailFilter(event.target.value)}
+              placeholder={t('dashboard.emailPlaceholder')}
+              className="w-full rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-accent"
+            />
+          </label>
+        </div>
+
+        <div className="overflow-hidden rounded-3xl border border-surface-border">
+          <div className="grid grid-cols-[1.4fr_1.8fr_0.9fr_1fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+            <span>{t('dashboard.userName')}</span>
+            <span>{t('dashboard.userEmail')}</span>
+            <span>{t('dashboard.userStatus')}</span>
+            <span>{t('dashboard.action')}</span>
+          </div>
+
+          {filteredUsers.length === 0 ? (
+            <div className="px-4 py-10 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
+          ) : (
+            <div className="divide-y divide-surface-border bg-surface-raised/30">
+              {filteredUsers.map((user) => {
+                const isBanned = user.status === 'banned'
+
+                return (
+                  <div
+                    key={user.id}
+                    className="grid grid-cols-[1.4fr_1.8fr_0.9fr_1fr] items-center gap-4 px-4 py-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{user.name}</p>
+                      <p className="text-xs text-slate-500">{user.plan}</p>
+                    </div>
+                    <p className="truncate text-slate-300">{user.email}</p>
+                    <span
+                      className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${
+                        isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'
+                      }`}
+                    >
+                      {isBanned ? t('dashboard.banned') : t('dashboard.activeUser')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleBan(user.id)}
+                      className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                        isBanned
+                          ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                          : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                      }`}
+                    >
+                      {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const renderPageContent = () => {
     if (activeNav === 'overview') {
@@ -173,6 +288,10 @@ function DashboardPage() {
 
     if (activeNav === 'feedback') {
       return renderFeedbackChart()
+    }
+
+    if (activeNav === 'userManagement') {
+      return renderUserManagement()
     }
 
     return (
