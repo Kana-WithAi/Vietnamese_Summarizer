@@ -315,7 +315,7 @@ function ProfilePage() {
       window.setTimeout(() => setSaved(false), 3000)
     } catch (error) {
       setSaved(false)
-      setSaveError(error?.message || (lang === 'vi' ? 'Không thể cập nhật hồ sơ. Vui lòng thử lại.' : 'Unable to update profile. Please try again.'))
+      setSaveError(error?.message || t('profile.saveFailed'))
     } finally {
       setIsSaving(false)
     }
@@ -324,8 +324,8 @@ function ProfilePage() {
   const menuItems = [
     {
       key: 'profile',
-      label: lang === 'vi' ? 'Thông tin người dùng' : 'User information',
-      description: lang === 'vi' ? 'Cập nhật hồ sơ và bảo mật' : 'Update profile and security',
+      label: t('profile.menuUserInfo'),
+      description: t('profile.menuUserInfoDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 12a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 0114 0" />
@@ -334,8 +334,8 @@ function ProfilePage() {
     },
     {
       key: 'sessions',
-      label: lang === 'vi' ? 'Phiên đăng nhập' : 'Login sessions',
-      description: lang === 'vi' ? 'Quản lý thiết bị đã đăng nhập' : 'Manage your active devices',
+      label: t('profile.menuSessions'),
+      description: t('profile.menuSessionsDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
@@ -345,8 +345,8 @@ function ProfilePage() {
     },
     {
       key: 'notifications',
-      label: lang === 'vi' ? 'Thông báo' : 'Notifications',
-      description: lang === 'vi' ? 'Tùy chọn thông báo và cập nhật' : 'Alerts and update preferences',
+      label: t('profile.menuNotifications'),
+      description: t('profile.menuNotificationsDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V10a6 6 0 10-12 0v4.2a2 2 0 01-.2 1.4L4 17h5" />
@@ -356,8 +356,8 @@ function ProfilePage() {
     },
     {
       key: 'transactions',
-      label: lang === 'vi' ? 'Quản lý thanh toán' : 'Transactions management',
-      description: lang === 'vi' ? 'Xem lịch sử thanh toán của bạn' : 'View your payment history',
+      label: t('profile.menuTransactions'),
+      description: t('profile.menuTransactionsDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7" />

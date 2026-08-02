@@ -85,7 +85,7 @@ function PricingPage() {
           'free'
         setCurrentTier(String(tier).toLowerCase())
       } catch (error) {
-        setPlansError(error?.message || (lang === 'vi' ? 'Không thể tải gói đăng ký.' : 'Unable to load subscription plans.'))
+        setPlansError(error?.message || t('pricingPage.errors.loadPlans'))
       } finally {
         setLoadingPlans(false)
       }
@@ -124,11 +124,7 @@ function PricingPage() {
     }
 
     if (Number(plan.price) <= 0) {
-      setPlansError(
-        lang === 'vi'
-          ? 'Gói này hiện chưa thể thanh toán vì giá đang bằng 0. Vui lòng cập nhật giá gói trong hệ thống admin.'
-          : 'This plan cannot be purchased because its price is currently 0. Please update the plan price in admin settings.',
-      )
+      setPlansError(t('pricingPage.errors.zeroPrice'))
       return
     }
 
@@ -172,7 +168,7 @@ function PricingPage() {
       )
 
       if (!checkoutUrl) {
-        throw new Error(lang === 'vi' ? 'Không nhận được liên kết thanh toán.' : 'No checkout URL returned from server.')
+        throw new Error(t('pricingPage.errors.noCheckoutUrl'))
       }
 
       const qrDataUrl = await QRCode.toDataURL(String(checkoutUrl), {
@@ -199,24 +195,16 @@ function PricingPage() {
       const isUnverified = /verified/i.test(message)
 
       if (isBanned) {
-        setPlansError(
-          lang === 'vi'
-            ? 'Tài khoản của bạn đang bị khóa nên không thể tạo thanh toán.'
-            : 'Your account is banned, so payment creation is not allowed.',
-        )
+        setPlansError(t('pricingPage.errors.banned'))
         return
       }
 
       if (isUnverified) {
-        setPlansError(
-          lang === 'vi'
-            ? 'Bạn cần xác thực email hoặc kích hoạt tài khoản trước khi tạo thanh toán.'
-            : 'You need to verify your email or activate your account before creating a payment.',
-        )
+        setPlansError(t('pricingPage.errors.unverified'))
         return
       }
 
-      setPlansError(error?.message || (lang === 'vi' ? 'Không thể tạo giao dịch thanh toán.' : 'Unable to create payment transaction.'))
+      setPlansError(error?.message || t('pricingPage.errors.createPayment'))
     } finally {
       setCheckoutLoadingPlanId('')
     }
@@ -247,22 +235,20 @@ function PricingPage() {
             <div className="flex items-start justify-between gap-4 border-b border-surface-border px-6 py-5">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
-                  {lang === 'vi' ? 'Thanh toán' : 'Payment'}
+                  {t('pricingPage.modal.title')}
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold text-white">
-                  {lang === 'vi' ? 'Quét mã QR để thanh toán' : 'Scan the QR code to pay'}
+                  {t('pricingPage.modal.scanTitle')}
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  {lang === 'vi'
-                    ? 'Không cần chuyển trang. Hãy quét mã ngay trong popup này để tiếp tục thanh toán.'
-                    : 'No page redirect is needed. Scan the QR directly inside this popup to continue.'}
+                  {t('pricingPage.modal.scanSubtitle')}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closePaymentModal}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
-                aria-label={lang === 'vi' ? 'Đóng' : 'Close'}
+                aria-label={t('pricingPage.modal.close')}
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -281,18 +267,18 @@ function PricingPage() {
                     />
                   ) : (
                     <div className="flex h-[320px] w-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500">
-                      {lang === 'vi' ? 'Đang tạo mã QR...' : 'Generating QR code...'}
+                      {t('pricingPage.modal.generatingQr')}
                     </div>
                   )}
                 </div>
 
                 <div className="mt-4 space-y-3 rounded-2xl border border-surface-border bg-surface-raised p-4 text-sm text-slate-300">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">{lang === 'vi' ? 'Gói' : 'Plan'}</span>
+                    <span className="text-slate-500">{t('pricingPage.modal.planLabel')}</span>
                     <span className="font-semibold text-white">{paymentModal.planName}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">{lang === 'vi' ? 'Số tiền' : 'Amount'}</span>
+                    <span className="text-slate-500">{t('pricingPage.modal.amountLabel')}</span>
                     <span className="font-semibold text-white">{formatPrice(paymentModal.amount)}</span>
                   </div>
                   {paymentModal.orderCode && (
@@ -309,7 +295,7 @@ function PricingPage() {
                     onClick={closePaymentModal}
                     className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
                   >
-                    {lang === 'vi' ? 'Đóng' : 'Close'}
+                    {t('pricingPage.modal.close')}
                   </button>
                 </div>
               </div>
@@ -317,40 +303,30 @@ function PricingPage() {
               <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-base p-5">
                 <div>
                   <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
-                    {lang === 'vi' ? 'Hướng dẫn' : 'Instructions'}
+                    {t('pricingPage.modal.instructions')}
                   </p>
                   <h3 className="mt-2 text-xl font-semibold text-white">
-                    {lang === 'vi' ? 'Cách thanh toán' : 'How to pay'}
+                    {t('pricingPage.modal.howToPay')}
                   </h3>
                 </div>
 
                 <ol className="space-y-3 text-sm text-slate-300">
                   <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {lang === 'vi'
-                      ? '1. Mở app ngân hàng hoặc ví điện tử trên điện thoại.'
-                      : '1. Open your banking app or e-wallet on your phone.'}
+                    {t('pricingPage.modal.step1')}
                   </li>
                   <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {lang === 'vi'
-                      ? '2. Quét mã QR đang hiển thị trong popup này.'
-                      : '2. Scan the QR code shown in this popup.'}
+                    {t('pricingPage.modal.step2')}
                   </li>
                   <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {lang === 'vi'
-                      ? '3. Xác nhận thông tin chuyển khoản và hoàn tất thanh toán.'
-                      : '3. Confirm the transfer details and complete the payment.'}
+                    {t('pricingPage.modal.step3')}
                   </li>
                   <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {lang === 'vi'
-                      ? '4. Sau khi thanh toán xong, hệ thống sẽ cập nhật trạng thái đơn hàng.'
-                      : '4. After payment, the system will update the order status.'}
+                    {t('pricingPage.modal.step4')}
                   </li>
                 </ol>
 
                 <div className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-slate-200">
-                  {lang === 'vi'
-                    ? 'Nếu trạng thái chưa đổi ngay lập tức, hãy chờ vài giây rồi kiểm tra lại trang trạng thái thanh toán.'
-                    : 'If the status does not update immediately, wait a few seconds and check the payment status page again.'}
+                  {t('pricingPage.modal.note')}
                 </div>
               </div>
             </div>
@@ -367,11 +343,11 @@ function PricingPage() {
       <section className="grid gap-5 md:grid-cols-3">
         {loadingPlans ? (
           <div className="col-span-full rounded-3xl border border-surface-border bg-surface-raised px-6 py-8 text-sm text-slate-400">
-            {lang === 'vi' ? 'Đang tải gói đăng ký...' : 'Loading subscription plans...'}
+            {t('pricingPage.loadingPlans')}
           </div>
         ) : sortedPlans.length === 0 ? (
           <div className="col-span-full rounded-3xl border border-surface-border bg-surface-raised px-6 py-8 text-sm text-slate-400">
-            {lang === 'vi' ? 'Chưa có gói đăng ký khả dụng.' : 'No active subscription plans available.'}
+            {t('pricingPage.noPlans')}
           </div>
         ) : (
           sortedPlans.map((plan) => {
@@ -397,12 +373,12 @@ function PricingPage() {
                         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 00.95-.69l1.07-3.292z" />
                         </svg>
-                        {lang === 'vi' ? 'Đề xuất' : 'Recommended'}
+                        {t('pricingPage.recommended')}
                       </span>
                     )}
                     {isCurrentPlan && (
                       <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
-                        {lang === 'vi' ? 'Gói hiện tại' : 'Current'}
+                        {t('pricingPage.currentPlan')}
                       </span>
                     )}
                   </div>
@@ -433,11 +409,11 @@ function PricingPage() {
                   className="mt-8 w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isCurrentPlan
-                    ? (lang === 'vi' ? 'Đang sử dụng' : 'Current plan')
+                    ? t('pricingPage.currentPlan')
                     : Number(plan.price) <= 0
-                      ? (lang === 'vi' ? 'Chưa khả dụng' : 'Unavailable')
+                      ? t('pricingPage.unavailable')
                     : isBusy
-                      ? (lang === 'vi' ? 'Đang chuyển hướng...' : 'Redirecting...')
+                      ? t('pricingPage.redirecting')
                       : t('pricingPage.getStarted')}
                 </button>
               </article>
