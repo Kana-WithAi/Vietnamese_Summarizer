@@ -69,7 +69,10 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(data))
+    const error = new Error(getErrorMessage(data))
+    error.status = response.status
+    error.data = data
+    throw error
   }
 
   return data
@@ -110,4 +113,48 @@ export const sessionsApi = {
   list: () => request('/user/sessions', { auth: true }),
   revokeOther: () => request('/user/sessions/other', { method: 'DELETE', auth: true }),
   revokeById: (id) => request(`/user/sessions/${id}`, { method: 'DELETE', auth: true }),
+}
+
+export const paymentsApi = {
+  create: (payload) => request('/payments/create', { method: 'POST', body: payload, auth: true }),
+  webhook: (payload) => request('/payments/webhook', { method: 'POST', body: payload }),
+  status: (orderCode) => request(`/payments/status/${orderCode}`, { auth: true }),
+  myTransactions: (params = {}) => {
+    const query = new URLSearchParams()
+
+    if (params.page) query.set('page', String(params.page))
+    if (params.limit) query.set('limit', String(params.limit))
+    if (params.status) query.set('status', String(params.status))
+
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const primaryPath = `/payments/my-transactions${suffix}`
+    const fallbackPath = `/payments/transactions${suffix}`
+
+    return request(primaryPath, { auth: true }).catch((error) => {
+      if (error?.status === 404) {
+        return request(fallbackPath, { auth: true })
+      }
+
+      throw error
+    })
+  },
+  transactions: (params = {}) => {
+    const query = new URLSearchParams()
+
+    if (params.page) query.set('page', String(params.page))
+    if (params.limit) query.set('limit', String(params.limit))
+    if (params.status) query.set('status', String(params.status))
+
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const primaryPath = `/payments/transactions${suffix}`
+    const fallbackPath = `/payments/my-transactions${suffix}`
+
+    return request(primaryPath, { auth: true }).catch((error) => {
+      if (error?.status === 404) {
+        return request(fallbackPath, { auth: true })
+      }
+
+      throw error
+    })
+  },
 }

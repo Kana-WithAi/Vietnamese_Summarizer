@@ -8,6 +8,8 @@ import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
 import ProfilePage from './pages/ProfilePage'
 import PricingPage from './pages/PricingPage'
+import PaymentStatusPage from './pages/PaymentStatusPage'
+import PaymentCancelPage from './pages/PaymentCancelPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import ResetPasswordConfirmPage from './pages/ResetPasswordConfirmPage'
@@ -47,6 +49,22 @@ function App() {
             element={
               <Layout>
                 <PricingPage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/payments/status"
+            element={
+              <Layout>
+                <PaymentStatusPage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/payments/cancel"
+            element={
+              <Layout>
+                <PaymentCancelPage />
               </Layout>
             }
           />

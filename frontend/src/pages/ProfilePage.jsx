@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { authApi, sessionsApi } from '../utils/api'
+import { authApi, paymentsApi, sessionsApi } from '../utils/api'
 
 const initialProfile = {
   displayName: '',
@@ -28,6 +28,10 @@ function ProfilePage() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [sessionsError, setSessionsError] = useState('')
   const [sessionActionLoading, setSessionActionLoading] = useState('')
+  const [transactions, setTransactions] = useState([])
+  const [transactionsLoading, setTransactionsLoading] = useState(false)
+  const [transactionsError, setTransactionsError] = useState('')
+  const [transactionStatusFilter, setTransactionStatusFilter] = useState('')
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -104,6 +108,53 @@ function ProfilePage() {
     loadSessions()
   }, [activeTab, lang])
 
+  useEffect(() => {
+    const loadTransactions = async () => {
+      if (activeTab !== 'transactions') return
+
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        setTransactions([])
+        setTransactionsError(lang === 'vi' ? 'Vui lòng đăng nhập để xem giao dịch.' : 'Please log in to view transactions.')
+        return
+      }
+
+      setTransactionsLoading(true)
+      setTransactionsError('')
+
+      try {
+        const response = await paymentsApi.myTransactions({
+          page: 1,
+          limit: 20,
+          status: transactionStatusFilter || undefined,
+        })
+        const payload = response?.data || response
+        const transactionList =
+          payload?.transactions ||
+          payload?.items ||
+          payload?.payments ||
+          (Array.isArray(payload) ? payload : [])
+
+        setTransactions(Array.isArray(transactionList) ? transactionList : [])
+      } catch (error) {
+        setTransactions([])
+        if (error?.status === 404 || /404\s*page\s*not\s*found/i.test(String(error?.message || ''))) {
+          setTransactionsError(
+            lang === 'vi'
+              ? 'API giao dịch thanh toán chưa có trên backend hiện tại (localhost). Vui lòng chạy đúng backend version có route payments transactions.'
+              : 'Payment transactions API is not available on the current localhost backend. Please run the backend version that includes payments transactions routes.',
+          )
+        } else {
+          setTransactionsError(error?.message || (lang === 'vi' ? 'Không thể tải danh sách giao dịch.' : 'Unable to load transactions.'))
+        }
+      } finally {
+        setTransactionsLoading(false)
+      }
+    }
+
+    loadTransactions()
+  }, [activeTab, lang, transactionStatusFilter])
+
   const getSessionId = (session, fallbackIndex) => {
     return session?.id || session?.session_id || session?.sessionId || `session-${fallbackIndex}`
   }
@@ -126,6 +177,51 @@ function ProfilePage() {
     if (ip) return ip
     if (lastSeen) return lastSeen
     return lang === 'vi' ? 'Không có thông tin bổ sung' : 'No additional details'
+  }
+
+  const getTransactionId = (transaction, fallbackIndex) => {
+    return transaction?.id || transaction?.order_code || transaction?.orderCode || `tx-${fallbackIndex}`
+  }
+
+  const getTransactionTitle = (transaction) => {
+    return (
+      transaction?.plan_name ||
+      transaction?.planName ||
+      transaction?.description ||
+      transaction?.name ||
+      (lang === 'vi' ? 'Thanh toán' : 'Payment')
+    )
+  }
+
+  const getTransactionStatus = (transaction) => {
+    return String(transaction?.status || transaction?.payment_status || transaction?.state || '').toLowerCase()
+  }
+
+  const getTransactionStatusLabel = (status) => {
+    if (status === 'pending') return t('profile.transactionsStatusPending')
+    if (status === 'paid') return t('profile.transactionsStatusPaid')
+    if (status === 'cancelled') return t('profile.transactionsStatusCancelled')
+    if (status === 'failed') return t('profile.transactionsStatusFailed')
+    if (status === 'completed') return t('profile.transactionsStatusCompleted')
+    if (status === 'success') return t('profile.transactionsStatusSuccess')
+    return status || t('profile.transactionsUnknown')
+  }
+
+  const getTransactionAmount = (transaction) => {
+    const amount = Number(transaction?.amount || transaction?.payment_amount || transaction?.total_amount || 0)
+    try {
+      return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
+        style: 'currency',
+        currency: 'VND',
+        maximumFractionDigits: 0,
+      }).format(amount)
+    } catch {
+      return `${amount} VND`
+    }
+  }
+
+  const getTransactionDate = (transaction) => {
+    return transaction?.created_at || transaction?.createdAt || transaction?.updated_at || transaction?.updatedAt || ''
   }
 
   const handleRevokeSession = async (sessionId) => {
@@ -229,7 +325,7 @@ function ProfilePage() {
       window.setTimeout(() => setSaved(false), 3000)
     } catch (error) {
       setSaved(false)
-      setSaveError(error?.message || (lang === 'vi' ? 'Không thể cập nhật hồ sơ. Vui lòng thử lại.' : 'Unable to update profile. Please try again.'))
+      setSaveError(error?.message || t('profile.saveFailed'))
     } finally {
       setIsSaving(false)
     }
@@ -238,8 +334,8 @@ function ProfilePage() {
   const menuItems = [
     {
       key: 'profile',
-      label: lang === 'vi' ? 'Thông tin người dùng' : 'User information',
-      description: lang === 'vi' ? 'Cập nhật hồ sơ và bảo mật' : 'Update profile and security',
+      label: t('profile.menuUserInfo'),
+      description: t('profile.menuUserInfoDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 12a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 0114 0" />
@@ -248,8 +344,8 @@ function ProfilePage() {
     },
     {
       key: 'sessions',
-      label: lang === 'vi' ? 'Phiên đăng nhập' : 'Login sessions',
-      description: lang === 'vi' ? 'Quản lý thiết bị đã đăng nhập' : 'Manage your active devices',
+      label: t('profile.menuSessions'),
+      description: t('profile.menuSessionsDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
@@ -259,12 +355,23 @@ function ProfilePage() {
     },
     {
       key: 'notifications',
-      label: lang === 'vi' ? 'Thông báo' : 'Notifications',
-      description: lang === 'vi' ? 'Tùy chọn thông báo và cập nhật' : 'Alerts and update preferences',
+      label: t('profile.menuNotifications'),
+      description: t('profile.menuNotificationsDesc'),
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V10a6 6 0 10-12 0v4.2a2 2 0 01-.2 1.4L4 17h5" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M10 19a2 2 0 004 0" />
+        </svg>
+      ),
+    },
+    {
+      key: 'transactions',
+      label: t('profile.menuTransactions'),
+      description: t('profile.menuTransactionsDesc'),
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 11h8M8 15h5" />
         </svg>
       ),
     },
@@ -505,6 +612,81 @@ function ProfilePage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'transactions' && (
+              <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-raised/70 p-6 shadow-sm shadow-black/10">
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('profile.sectionTransactions')}</p>
+                  <h3 className="text-xl font-semibold text-white">{t('profile.transactionsTitle')}</h3>
+                  <p className="text-sm text-slate-400">{t('profile.transactionsSubtitle')}</p>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                      {t('profile.transactionsFilterStatus')}
+                    </label>
+                    <select
+                      value={transactionStatusFilter}
+                      onChange={(event) => setTransactionStatusFilter(event.target.value)}
+                      className="rounded-2xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-100 outline-none"
+                    >
+                      <option value="">{t('profile.transactionsAll')}</option>
+                      <option value="pending">{t('profile.transactionsStatusPending')}</option>
+                      <option value="paid">{t('profile.transactionsStatusPaid')}</option>
+                      <option value="failed">{t('profile.transactionsStatusFailed')}</option>
+                      <option value="cancelled">{t('profile.transactionsStatusCancelled')}</option>
+                    </select>
+                  </div>
+                </div>
+
+                {transactionsError && <p className="text-sm text-rose-300">{transactionsError}</p>}
+
+                <div className="space-y-3">
+                  {transactionsLoading ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                      {t('profile.transactionsLoading')}
+                    </div>
+                  ) : transactions.length === 0 ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                      {t('profile.transactionsEmpty')}
+                    </div>
+                  ) : (
+                    transactions.map((transaction, index) => {
+                      const status = getTransactionStatus(transaction)
+                      const statusClass =
+                        status === 'paid' || status === 'success' || status === 'completed'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : status === 'pending'
+                            ? 'bg-amber-500/15 text-amber-300'
+                            : 'bg-rose-500/15 text-rose-300'
+
+                      return (
+                        <div key={getTransactionId(transaction, index)} className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="space-y-1">
+                              <p className="font-semibold text-white">{getTransactionTitle(transaction)}</p>
+                              <p className="text-sm text-slate-500">
+                                {t('profile.transactionsOrder')}: {getTransactionId(transaction, index)}
+                              </p>
+                              {getTransactionDate(transaction) && (
+                                <p className="text-sm text-slate-500">{getTransactionDate(transaction)}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-start gap-2 sm:items-end">
+                              <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${statusClass}`}>
+                                {getTransactionStatusLabel(status)}
+                              </span>
+                              <span className="text-lg font-semibold text-white">{getTransactionAmount(transaction)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             )}
