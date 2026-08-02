@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { authApi } from '../utils/api'
+import { authApi, sessionsApi } from '../utils/api'
 
 const initialProfile = {
   displayName: '',
@@ -24,6 +24,10 @@ function ProfilePage() {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [sessionsError, setSessionsError] = useState('')
+  const [sessionActionLoading, setSessionActionLoading] = useState('')
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -65,6 +69,92 @@ function ProfilePage() {
     window.addEventListener('auth:updated', handleAuthUpdate)
     return () => window.removeEventListener('auth:updated', handleAuthUpdate)
   }, [])
+
+  useEffect(() => {
+    const loadSessions = async () => {
+      if (activeTab !== 'sessions') return
+
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        setSessions([])
+        setSessionsError(lang === 'vi' ? 'Vui lòng đăng nhập để xem phiên.' : 'Please log in to view sessions.')
+        return
+      }
+
+      setSessionsLoading(true)
+      setSessionsError('')
+
+      try {
+        const response = await sessionsApi.list()
+        const payload = response?.data || response
+        const sessionList =
+          payload?.sessions ||
+          payload?.items ||
+          (Array.isArray(payload) ? payload : [])
+
+        setSessions(Array.isArray(sessionList) ? sessionList : [])
+      } catch (error) {
+        setSessions([])
+        setSessionsError(error?.message || (lang === 'vi' ? 'Không thể tải danh sách phiên.' : 'Unable to load sessions.'))
+      } finally {
+        setSessionsLoading(false)
+      }
+    }
+
+    loadSessions()
+  }, [activeTab, lang])
+
+  const getSessionId = (session, fallbackIndex) => {
+    return session?.id || session?.session_id || session?.sessionId || `session-${fallbackIndex}`
+  }
+
+  const getSessionName = (session) => {
+    return (
+      session?.device_name ||
+      session?.deviceName ||
+      session?.user_agent ||
+      session?.userAgent ||
+      (lang === 'vi' ? 'Thiết bị không xác định' : 'Unknown device')
+    )
+  }
+
+  const getSessionDetail = (session) => {
+    const ip = session?.ip_address || session?.ip || ''
+    const lastSeen = session?.last_seen_at || session?.lastSeenAt || session?.updated_at || session?.created_at || ''
+
+    if (ip && lastSeen) return `${ip} · ${lastSeen}`
+    if (ip) return ip
+    if (lastSeen) return lastSeen
+    return lang === 'vi' ? 'Không có thông tin bổ sung' : 'No additional details'
+  }
+
+  const handleRevokeSession = async (sessionId) => {
+    setSessionActionLoading(sessionId)
+    setSessionsError('')
+
+    try {
+      await sessionsApi.revokeById(sessionId)
+      setSessions((prev) => prev.filter((session, index) => getSessionId(session, index) !== sessionId))
+    } catch (error) {
+      setSessionsError(error?.message || (lang === 'vi' ? 'Không thể đăng xuất phiên này.' : 'Unable to revoke this session.'))
+    } finally {
+      setSessionActionLoading('')
+    }
+  }
+
+  const handleRevokeOtherSessions = async () => {
+    setSessionActionLoading('others')
+    setSessionsError('')
+
+    try {
+      await sessionsApi.revokeOther()
+      setSessions((prev) => prev.filter((session) => session?.is_current || session?.current))
+    } catch (error) {
+      setSessionsError(error?.message || (lang === 'vi' ? 'Không thể đăng xuất các phiên khác.' : 'Unable to revoke other sessions.'))
+    } finally {
+      setSessionActionLoading('')
+    }
+  }
 
   const handleChange = (field) => (event) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }))
@@ -330,21 +420,62 @@ function ProfilePage() {
                   <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{lang === 'vi' ? 'Phiên đăng nhập' : 'Login sessions'}</p>
                   <h3 className="text-xl font-semibold text-white">{lang === 'vi' ? 'Thiết bị và phiên đang hoạt động' : 'Active devices and sessions'}</h3>
                 </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleRevokeOtherSessions}
+                    disabled={sessionActionLoading === 'others' || sessions.length <= 1}
+                    className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sessionActionLoading === 'others'
+                      ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                      : (lang === 'vi' ? 'Đăng xuất các phiên khác' : 'Log out other sessions')}
+                  </button>
+                </div>
+
+                {sessionsError && <p className="text-sm text-rose-300">{sessionsError}</p>}
+
                 <div className="space-y-3">
-                  {[
-                    { name: lang === 'vi' ? 'Chrome trên Windows' : 'Chrome on Windows', detail: 'FPT, 10 phút trước' },
-                    { name: lang === 'vi' ? 'Safari trên iPhone' : 'Safari on iPhone', detail: 'Hà Nội, 3 giờ trước' },
-                  ].map((session) => (
-                    <div key={session.name} className="flex items-center justify-between rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
-                      <div>
-                        <p className="font-medium text-white">{session.name}</p>
-                        <p className="text-sm text-slate-500">{session.detail}</p>
-                      </div>
-                      <button type="button" className="text-sm text-accent hover:text-accent-hover">
-                        {lang === 'vi' ? 'Đăng xuất' : 'Log out'}
-                      </button>
+                  {sessionsLoading ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                      {lang === 'vi' ? 'Đang tải phiên đăng nhập...' : 'Loading login sessions...'}
                     </div>
-                  ))}
+                  ) : sessions.length === 0 ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                      {lang === 'vi' ? 'Không có phiên đăng nhập nào.' : 'No active sessions found.'}
+                    </div>
+                  ) : (
+                    sessions.map((session, index) => {
+                      const sessionId = getSessionId(session, index)
+                      const isCurrent = Boolean(session?.is_current || session?.current)
+
+                      return (
+                        <div key={sessionId} className="flex items-center justify-between rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
+                          <div>
+                            <p className="font-medium text-white">
+                              {getSessionName(session)}
+                              {isCurrent && (
+                                <span className="ml-2 rounded-lg bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                  {lang === 'vi' ? 'Hiện tại' : 'Current'}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-sm text-slate-500">{getSessionDetail(session)}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeSession(sessionId)}
+                            disabled={isCurrent || sessionActionLoading === sessionId}
+                            className="text-sm text-accent transition hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {sessionActionLoading === sessionId
+                              ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                              : (lang === 'vi' ? 'Đăng xuất' : 'Log out')}
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             )}

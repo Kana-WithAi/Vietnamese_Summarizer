@@ -105,3 +105,9 @@ export const historyApi = {
   removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
   removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
 }
+
+export const sessionsApi = {
+  list: () => request('/user/sessions', { auth: true }),
+  revokeOther: () => request('/user/sessions/other', { method: 'DELETE', auth: true }),
+  revokeById: (id) => request(`/user/sessions/${id}`, { method: 'DELETE', auth: true }),
+}
