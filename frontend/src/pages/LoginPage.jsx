@@ -14,6 +14,11 @@ function LoginPage() {
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const extractRole = (payload) => {
+    const user = payload?.user || payload?.data?.user || payload?.data || payload
+    return user?.role || user?.role_name || user?.roleName || ''
+  }
+
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
     setErrors((prev) => ({ ...prev, [field]: '' }))
@@ -51,6 +56,8 @@ function LoginPage() {
       })
 
       const token = response?.token || response?.accessToken || response?.data?.token
+      let role = extractRole(response)
+
       if (token) {
         localStorage.setItem('accessToken', token)
         if (remember) {
@@ -58,10 +65,22 @@ function LoginPage() {
         } else {
           localStorage.removeItem('rememberMe')
         }
+
+        if (!role) {
+          try {
+            const meResponse = await authApi.me()
+            role = extractRole(meResponse)
+          } catch {
+            // Ignore role lookup failure and continue with default route.
+          }
+        }
+
         window.dispatchEvent(new Event('auth:updated'))
       }
 
-      navigate('/')
+      const normalizedRole = String(role || '').trim().toLowerCase()
+      const isAdmin = normalizedRole === 'admin' || normalizedRole === 'administrator' || normalizedRole.includes('admin')
+      navigate(isAdmin ? '/dashboard' : '/')
     } catch (error) {
       setSubmitError(error.message || t('loginPage.submitError'))
     } finally {
