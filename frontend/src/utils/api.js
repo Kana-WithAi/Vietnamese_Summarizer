@@ -135,9 +135,22 @@ export const adminApi = {
     remove: (id) => request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true }),
   },
   feedbacks: {
-    list: (params = {}) => request(`/admin/feedbacks${buildQuery(params)}`, { auth: true }),
+    list: ({ page, limit, rating, admin_replied } = {}) =>
+      request(
+        `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied })}`,
+        { auth: true },
+      ),
     replyTemplates: () => request('/admin/feedbacks/reply-templates', { auth: true }),
-    reply: (id, payload) => request(`/admin/feedbacks/${id}/reply`, { method: 'POST', body: payload, auth: true }),
+    reply: (id, payload) =>
+      request(`/admin/feedbacks/${id}/reply`, {
+        method: 'POST',
+        body: {
+          template_type: payload?.template_type,
+          reply_content: payload?.reply_content,
+          admin_replied: payload?.admin_replied,
+        },
+        auth: true,
+      }),
     remove: (id) => request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true }),
   },
   analytics: {

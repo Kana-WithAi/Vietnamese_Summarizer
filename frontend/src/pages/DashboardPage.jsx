@@ -170,6 +170,12 @@ function getFeedbackExistingReply(feedback) {
     feedback?.admin_reply,
     feedback?.adminReply,
     feedback?.response,
+    feedback?.feedback?.reply_content,
+    feedback?.feedback?.replyContent,
+    feedback?.feedback?.admin_reply_content,
+    feedback?.feedback?.response,
+    feedback?.data?.reply_content,
+    feedback?.attributes?.reply_content,
     feedback?.reply?.content,
     feedback?.reply?.reply_content,
   ]
@@ -206,6 +212,24 @@ function getFeedbackRatingLabel(rating, t) {
   if (normalized === 'like') return t('dashboard.feedbackModerationUi.like')
   if (normalized === 'dislike') return t('dashboard.feedbackModerationUi.dislike')
   return rating || '-'
+}
+
+function getFeedbackUserEmail(feedback) {
+  const candidates = [
+    feedback?.user?.email,
+    feedback?.email,
+    feedback?.user_email,
+    feedback?.userEmail,
+    feedback?.author?.email,
+  ]
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return ''
 }
 
 function DashboardPage() {
@@ -544,6 +568,7 @@ function DashboardPage() {
       await adminApi.feedbacks.reply(id, {
         template_type: form.template_type || undefined,
         reply_content: form.reply_content,
+        admin_replied: 'replied',
       })
       await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
     } catch (error) {
@@ -873,16 +898,23 @@ function DashboardPage() {
               const isReplied = replyStatus === 'replied'
               const existingReply = getFeedbackExistingReply(feedback)
               const replyForm = replyForms[id] || { template_type: existingReply.templateType, reply_content: existingReply.replyContent }
+              const displayedReplyContent = isReplied
+                ? (existingReply.replyContent || replyForm.reply_content || '')
+                : (replyForm.reply_content ?? existingReply.replyContent ?? '')
               const selectedTemplateValue = replyForm.template_type || existingReply.templateType || ''
               const selectedTemplateLabel = selectedTemplateValue ? getFeedbackTemplateLabel(selectedTemplateValue, t) : ''
               const hasSelectedTemplateInList = templates.some((tpl, tplIndex) => {
                 const value = tpl?.type || tpl?.template_type || `template-${tplIndex}`
                 return String(value) === String(selectedTemplateValue)
               })
+              const feedbackEmail = getFeedbackUserEmail(feedback)
 
               return (
                 <div key={id} className="rounded-2xl border border-surface-border bg-surface-base/40 px-4 py-4">
                   <p className="text-sm text-white">{getFeedbackComment(feedback, lang)}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {t('dashboard.feedbackModerationUi.userEmail')}: {feedbackEmail || '-'}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">{t('dashboard.feedbackModerationUi.ratingLabel')}: {getFeedbackRatingLabel(feedback?.rating, t)}</p>
 
                   <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
@@ -903,7 +935,7 @@ function DashboardPage() {
                       })}
                     </select>
                     <input
-                      value={replyForm.reply_content || existingReply.replyContent}
+                      value={displayedReplyContent}
                       onChange={(e) => setReplyForms((prev) => ({ ...prev, [id]: { ...replyForm, reply_content: e.target.value } }))}
                       placeholder={t('dashboard.feedbackModerationUi.replyPlaceholder')}
                       disabled={isReplied}
