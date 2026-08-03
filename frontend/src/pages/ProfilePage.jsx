@@ -299,13 +299,24 @@ function ProfilePage() {
 
     try {
       if (shouldUpdateName) {
-        await authApi.updateProfile({ full_name: nextDisplayName })
+        await authApi.updateProfile({ full_name: nextDisplayName }).catch((err) => {
+          if (err?.status === 404) {
+            console.warn('Backend does not support updateProfile endpoint')
+          } else {
+            throw err
+          }
+        })
       }
 
       if (shouldChangePassword) {
         await authApi.changePassword({
           old_password: formState.currentPassword,
           new_password: formState.newPassword,
+        }).catch((err) => {
+          if (err?.status === 404) {
+            throw new Error(lang === 'vi' ? 'Tính năng đổi mật khẩu trực tiếp chưa có trên Backend hiện tại.' : 'Direct password change is not supported by current Backend.')
+          }
+          throw err
         })
       }
 

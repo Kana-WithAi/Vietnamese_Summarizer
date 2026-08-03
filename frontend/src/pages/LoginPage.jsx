@@ -3,10 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { authApi } from '../utils/api'
 
 function LoginPage() {
   const { t } = useLanguage()
+  const { login } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({ email: '', password: '' })
   const [errors, setErrors] = useState({})
@@ -50,20 +52,22 @@ function LoginPage() {
         password: form.password,
       })
 
-      const token = response?.token || response?.accessToken || response?.data?.token
+      const resData = response?.data || response
+      const token = resData?.token || resData?.access_token || response?.token
+      const user = resData?.user || response?.user
+
       if (token) {
-        localStorage.setItem('accessToken', token)
+        login(token, user)
         if (remember) {
           localStorage.setItem('rememberMe', 'true')
         } else {
           localStorage.removeItem('rememberMe')
         }
-        window.dispatchEvent(new Event('auth:updated'))
       }
 
       navigate('/')
     } catch (error) {
-      setSubmitError(error.message || t('loginPage.submitError'))
+      setSubmitError(error?.message || t('loginPage.submitError'))
     } finally {
       setIsSubmitting(false)
     }

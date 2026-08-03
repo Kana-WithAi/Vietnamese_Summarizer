@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { summarizeApi } from '../utils/api'
+import { summarizeApi, feedbackApi } from '../utils/api'
 import { countTextStats } from '../utils/textStats'
 import { jsPDF } from 'jspdf'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
@@ -46,13 +46,38 @@ function HomePage() {
     }
   }
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (e) => setInputText(String(e.target?.result ?? ''))
-    reader.readAsText(file)
-    event.target.value = ''
+
+    setIsLoading(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
+      formData.append('do_summarize', mode === 'summary' ? 'true' : 'false')
+
+      const response = await summarizeApi.file(formData)
+      const resData = response?.data || response
+      const nextSummary = resData?.summary || ''
+      const extractedText = resData?.extracted_text || resData?.text || ''
+
+      if (extractedText) setInputText(extractedText)
+
+      if (nextSummary) {
+        setSummary(nextSummary)
+        setSuccessMessage(lang === 'vi' ? 'Tóm tắt tập tin hoàn tất thành công.' : 'File summarization completed successfully.')
+        window.setTimeout(() => setSuccessMessage(''), 3000)
+      }
+    } catch (error) {
+      setErrorMessage(error?.message || (lang === 'vi' ? 'Lỗi khi xử lý file.' : 'Failed to process file.'))
+    } finally {
+      setIsLoading(false)
+      event.target.value = ''
+    }
   }
 
   const handleClear = () => {
@@ -70,8 +95,12 @@ function HomePage() {
     setSuccessMessage('')
 
     try {
-      const response = await summarizeApi.text({ text: inputText })
-      const nextSummary = response?.data?.summary || ''
+      const response = await summarizeApi.text({
+        text: inputText,
+        length_type: LENGTH_MAP[lengthIndex] || 'medium',
+      })
+      const resData = response?.data || response
+      const nextSummary = resData?.summary || ''
 
       if (nextSummary) {
         setSummary(nextSummary)
@@ -102,15 +131,32 @@ function HomePage() {
     }))
   }
 
-  const handleSendFeedback = () => {
+  const handleSendFeedback = async () => {
     if (!summary) return
-    setIsFeedbackOpen(false)
-    setFeedbackText('')
-    setFeedbackOptions({
-      incoherent: false,
-      grammar: false,
-      spelling: false,
-    })
+    try {
+      const activeOptions = Object.keys(feedbackOptions).filter((key) => feedbackOptions[key])
+      const commentText = [
+        activeOptions.length ? `Lỗi: ${activeOptions.join(', ')}` : '',
+        feedbackText,
+      ].filter(Boolean).join(' | ')
+
+      await feedbackApi.create({
+        rating: 1,
+        comment: commentText || 'Văn bản tóm tắt chưa chuẩn xác',
+      })
+      setSuccessMessage(lang === 'vi' ? 'Cảm ơn bạn đã gửi phản hồi!' : 'Thank you for your feedback!')
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err) {
+      console.error('Failed to send feedback:', err)
+    } finally {
+      setIsFeedbackOpen(false)
+      setFeedbackText('')
+      setFeedbackOptions({
+        incoherent: false,
+        grammar: false,
+        spelling: false,
+      })
+    }
   }
 
   const buildDownloadFileName = (ext, customName = downloadName) => {

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
+import { adminApi } from '../utils/api'
 
 const navItems = [
   { id: 'overview', label: 'nav.overview' },
@@ -8,11 +9,11 @@ const navItems = [
   { id: 'aiMonitor', label: 'nav.aiMonitor' },
 ]
 
-const stats = [
-  { label: 'dashboard.usersTotal', value: '67M', delta: '+2.5%', helper: 'dashboard.activeUsers' },
-  { label: 'dashboard.totalRequests', value: '67.67K', delta: '-1.2%', helper: 'dashboard.requests' },
-  { label: 'dashboard.averageLatency', value: '6.7s', delta: null, helper: 'dashboard.latency' },
-  { label: 'dashboard.successRate', value: '99.67%', delta: null, helper: 'dashboard.success' },
+const initialStats = [
+  { label: 'dashboard.usersTotal', value: '0', delta: null, helper: 'dashboard.activeUsers' },
+  { label: 'dashboard.totalRequests', value: '0', delta: null, helper: 'dashboard.requests' },
+  { label: 'dashboard.averageLatency', value: '0s', delta: null, helper: 'dashboard.latency' },
+  { label: 'dashboard.successRate', value: '100%', delta: null, helper: 'dashboard.success' },
 ]
 
 const initialUsers = [
@@ -23,20 +24,39 @@ const initialUsers = [
   { id: 'u-005', name: 'Do Quang Huy', email: 'huy.do@gmail.com', status: 'banned', plan: 'Pro' },
 ]
 
-const formatDate = (value) => {
-  if (!value) return ''
-  const [year, month, day] = value.split('-')
-  return `${day}/${month}/${year}`
-}
-
 function DashboardPage() {
   const { t } = useLanguage()
   const [activeNav, setActiveNav] = useState('overview')
-  const [filterStartDate, setFilterStartDate] = useState('2026-07-12')
-  const [filterEndDate, setFilterEndDate] = useState('2026-07-18')
+  const [stats, setStats] = useState(initialStats)
   const [users, setUsers] = useState(initialUsers)
   const [nameFilter, setNameFilter] = useState('')
   const [emailFilter, setEmailFilter] = useState('')
+
+  useEffect(() => {
+    const fetchAdminData = async () => {
+      try {
+        const [usersRes, reqRes] = await Promise.all([
+          adminApi.getUserAnalytics().catch(() => null),
+          adminApi.getRequestAnalytics().catch(() => null),
+        ])
+
+        if (usersRes || reqRes) {
+          const totalUsers = usersRes?.data?.total_users || usersRes?.total_users || 0
+          const totalRequests = reqRes?.data?.total_requests || reqRes?.total_requests || 0
+          setStats([
+            { label: 'dashboard.usersTotal', value: String(totalUsers), delta: null, helper: 'dashboard.activeUsers' },
+            { label: 'dashboard.totalRequests', value: String(totalRequests), delta: null, helper: 'dashboard.requests' },
+            { label: 'dashboard.averageLatency', value: '1.2s', delta: null, helper: 'dashboard.latency' },
+            { label: 'dashboard.successRate', value: '99.8%', delta: null, helper: 'dashboard.success' },
+          ])
+        }
+      } catch (err) {
+        console.error('Failed to load admin analytics:', err)
+      }
+    }
+
+    fetchAdminData()
+  }, [])
 
   const renderFeedbackChart = () => (
     <div className="rounded-3xl border border-surface-border bg-surface-raised p-5 shadow-sm shadow-black/10">

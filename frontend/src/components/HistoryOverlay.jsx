@@ -1,31 +1,51 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
+import { historyApi } from '../utils/api'
 
 const ITEMS_PER_PAGE = 6
-
-// sample summaries include `inputType` and `date` to support filtering
-const initialSummaries = [
-  { id: 1, title: 'Project Report Q3', time: '2 hours ago', inputType: 'paste', date: '2026-07-19' },
-  { id: 2, title: 'Meeting Notes', time: '1 day ago', inputType: 'upload', date: '2026-07-18' },
-  { id: 3, title: 'Article Summary', time: '3 days ago', inputType: 'paste', date: '2026-07-16' },
-  { id: 4, title: 'Document Review', time: '1 week ago', inputType: 'upload', date: '2026-07-12' },
-  { id: 5, title: 'Presentation Script', time: '2 weeks ago', inputType: 'paste', date: '2026-07-05' },
-  { id: 6, title: 'Weekly Reflection', time: '3 weeks ago', inputType: 'upload', date: '2026-06-28' },
-  { id: 7, title: 'Client Feedback', time: '1 month ago', inputType: 'paste', date: '2026-06-20' },
-  { id: 8, title: 'Research Highlights', time: '2 months ago', inputType: 'upload', date: '2026-05-19' },
-]
 
 function HistoryOverlay() {
   const overlayRef = useRef(null)
   const { t } = useLanguage()
   const { isHistoryOpen, closeHistory } = useHistory()
-  const [summaries, setSummaries] = useState(initialSummaries)
+  const [summaries, setSummaries] = useState([])
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [filterInputType, setFilterInputType] = useState('all')
   const [filterDate, setFilterDate] = useState('')
+
+  const loadHistory = async () => {
+    const token = localStorage.getItem('accessToken')
+    if (!token) {
+      setSummaries([])
+      return
+    }
+
+    try {
+      const response = await historyApi.list()
+      const list = response?.data?.history || response?.history || response?.data || response || []
+      const normalized = Array.isArray(list)
+        ? list.map((item) => ({
+            id: item?.id || item?.history_id,
+            title: item?.title || item?.original_filename || (item?.original_text ? item.original_text.slice(0, 30) + '...' : 'Untitled'),
+            time: item?.created_at ? new Date(item.created_at).toLocaleDateString() : '',
+            date: item?.created_at ? item.created_at.slice(0, 10) : '',
+            inputType: item?.file_type || 'text',
+          }))
+        : []
+      setSummaries(normalized)
+    } catch {
+      setSummaries([])
+    }
+  }
+
+  useEffect(() => {
+    if (isHistoryOpen) {
+      loadHistory()
+    }
+  }, [isHistoryOpen])
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -83,11 +103,21 @@ function HistoryOverlay() {
     return filtered.slice(start, start + ITEMS_PER_PAGE)
   }, [page, summaries, search, filterInputType, filterDate])
 
-  const handleRemove = (id) => {
+  const handleRemove = async (id) => {
+    try {
+      await historyApi.removeById(id)
+    } catch (err) {
+      console.error('Failed to remove history item:', err)
+    }
     setSummaries((prev) => prev.filter((item) => item.id !== id))
   }
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
+    try {
+      await historyApi.removeAll()
+    } catch (err) {
+      console.error('Failed to clear all history:', err)
+    }
     setSummaries([])
     setPage(1)
   }

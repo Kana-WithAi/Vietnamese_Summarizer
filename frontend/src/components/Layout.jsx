@@ -1,8 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
-import { authApi } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
 import LanguageSwitcher from './LanguageSwitcher'
 import HistoryOverlay from './HistoryOverlay'
 import BookmarkOverlay from './BookmarkOverlay'
@@ -11,52 +11,15 @@ function Layout({ children }) {
   const navigate = useNavigate()
   const { t } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
+  const { user, isAuthenticated, logout } = useAuth()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [userName, setUserName] = useState('')
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
-  const syncAuthState = async () => {
-    const token = localStorage.getItem('accessToken')
-
-    if (!token) {
-      setIsAuthenticated(false)
-      setUserName('')
-      return
-    }
-
-    try {
-      const response = await authApi.me()
-      const user = response?.user || response?.data?.user || response?.data || response
-      const nextName = user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email || ''
-      setIsAuthenticated(true)
-      setUserName(nextName)
-    } catch {
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('rememberMe')
-      setIsAuthenticated(false)
-      setUserName('')
-    }
-  }
-
-  useEffect(() => {
-    syncAuthState()
-
-    const handleAuthUpdate = () => {
-      syncAuthState()
-    }
-
-    window.addEventListener('auth:updated', handleAuthUpdate)
-    return () => window.removeEventListener('auth:updated', handleAuthUpdate)
-  }, [])
+  const userName = user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email || ''
 
   const handleAuthAction = () => {
     if (isAuthenticated) {
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('rememberMe')
-      setIsAuthenticated(false)
-      setUserName('')
-      window.dispatchEvent(new Event('auth:updated'))
+      logout()
       navigate('/')
       return
     }
@@ -96,6 +59,14 @@ function Layout({ children }) {
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
+            {user?.role === 'admin' && (
+              <Link
+                to="/dashboard"
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-surface-elevated hover:text-accent-hover"
+              >
+                {t('nav.dashboard')}
+              </Link>
+            )}
             <Link
               to="/pricing"
               className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"

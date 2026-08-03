@@ -97,8 +97,24 @@ export const subscriptionsApi = {
 }
 
 export const summarizeApi = {
-  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: false }),
-  file: (payload) => request('/summarize/file', { method: 'POST', body: payload, auth: false }),
+  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: true }),
+  file: (payload) => request('/summarize/file', { method: 'POST', body: payload, auth: true }),
+}
+
+export const feedbackApi = {
+  getPublic: () => request('/feedbacks'),
+  create: (payload) => request('/feedbacks', { method: 'POST', body: payload, auth: true }),
+  update: (id, payload) => request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true }),
+  delete: (id) => request(`/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+}
+
+export const adminApi = {
+  getUserAnalytics: () => request('/admin/analytics/users', { auth: true }),
+  getRequestAnalytics: () => request('/admin/analytics/requests', { auth: true }),
+  getFileFormatAnalytics: () => request('/admin/analytics/file-formats', { auth: true }),
+  getActiveUsers: () => request('/admin/analytics/active-users', { auth: true }),
+  getPlans: () => request('/admin/subscriptions', { auth: true }),
+  getFeedbacks: () => request('/admin/feedbacks', { auth: true }),
 }
 
 export const historyApi = {

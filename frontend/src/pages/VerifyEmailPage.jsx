@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/auth/AuthLayout'
 import AuthInput from '../components/auth/AuthInput'
+import { useAuth } from '../context/AuthContext'
 import { authApi } from '../utils/api'
 
 function VerifyEmailPage() {
+  const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || ''
@@ -27,8 +29,13 @@ function VerifyEmailPage() {
     setResendMessage('')
 
     try {
-      await authApi.verifyEmail({ email, otp: otp.trim() })
-      navigate('/login')
+      const response = await authApi.verifyEmail({ email, otp: otp.trim() })
+      const resData = response?.data || response
+      const token = resData?.access_token || resData?.token || response?.access_token
+      if (token) {
+        login(token)
+      }
+      navigate('/')
     } catch (err) {
       setError(err.message || 'Verification failed. Please try again.')
     } finally {
