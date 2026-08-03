@@ -78,6 +78,18 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   return data
 }
 
+function buildQuery(params = {}) {
+  const query = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    query.set(key, String(value))
+  })
+
+  const content = query.toString()
+  return content ? `?${content}` : ''
+}
+
 export const authApi = {
   login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
   register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
@@ -102,11 +114,38 @@ export const summarizeApi = {
 }
 
 export const historyApi = {
-  list: () => request('/history', { auth: true }),
+  list: (params = {}) => request(`/history${buildQuery(params)}`, { auth: true }),
   getById: (id) => request(`/history/${id}`, { auth: true }),
+  updateTitle: (id, title) => request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true }),
   update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
   removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
   removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
+}
+
+export const adminApi = {
+  users: {
+    list: (params = {}) => request(`/admin/users${buildQuery(params)}`, { auth: true }),
+    ban: (id, payload = {}) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload, auth: true }),
+    unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }),
+  },
+  subscriptions: {
+    list: () => request('/admin/subscriptions', { auth: true }),
+    create: (payload) => request('/admin/subscriptions', { method: 'POST', body: payload, auth: true }),
+    update: (id, payload) => request(`/admin/subscriptions/${id}`, { method: 'PUT', body: payload, auth: true }),
+    remove: (id) => request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true }),
+  },
+  feedbacks: {
+    list: (params = {}) => request(`/admin/feedbacks${buildQuery(params)}`, { auth: true }),
+    replyTemplates: () => request('/admin/feedbacks/reply-templates', { auth: true }),
+    reply: (id, payload) => request(`/admin/feedbacks/${id}/reply`, { method: 'POST', body: payload, auth: true }),
+    remove: (id) => request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+  },
+  analytics: {
+    users: (params = {}) => request(`/admin/analytics/users${buildQuery(params)}`, { auth: true }),
+    requests: (params = {}) => request(`/admin/analytics/requests${buildQuery(params)}`, { auth: true }),
+    fileFormats: (params = {}) => request(`/admin/analytics/file-formats${buildQuery(params)}`, { auth: true }),
+    activeUsers: () => request('/admin/analytics/active-users', { auth: true }),
+  },
 }
 
 export const sessionsApi = {

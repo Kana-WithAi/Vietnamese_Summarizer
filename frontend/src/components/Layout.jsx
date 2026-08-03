@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
@@ -8,12 +8,14 @@ import HistoryOverlay from './HistoryOverlay'
 import BookmarkOverlay from './BookmarkOverlay'
 
 function Layout({ children }) {
+  const location = useLocation()
   const navigate = useNavigate()
   const { t } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
   const syncAuthState = async () => {
@@ -22,6 +24,7 @@ function Layout({ children }) {
     if (!token) {
       setIsAuthenticated(false)
       setUserName('')
+      setIsAdmin(false)
       return
     }
 
@@ -29,13 +32,17 @@ function Layout({ children }) {
       const response = await authApi.me()
       const user = response?.user || response?.data?.user || response?.data || response
       const nextName = user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email || ''
+      const rawRole = String(user?.role || user?.role_name || user?.roleName || '').trim().toLowerCase()
+      const nextIsAdmin = rawRole === 'admin' || rawRole === 'administrator' || rawRole.includes('admin')
       setIsAuthenticated(true)
       setUserName(nextName)
+      setIsAdmin(nextIsAdmin)
     } catch {
       localStorage.removeItem('accessToken')
       localStorage.removeItem('rememberMe')
       setIsAuthenticated(false)
       setUserName('')
+      setIsAdmin(false)
     }
   }
 
@@ -56,6 +63,7 @@ function Layout({ children }) {
       localStorage.removeItem('rememberMe')
       setIsAuthenticated(false)
       setUserName('')
+      setIsAdmin(false)
       window.dispatchEvent(new Event('auth:updated'))
       navigate('/')
       return
@@ -115,6 +123,16 @@ function Layout({ children }) {
 
           <div className="flex items-center gap-2 sm:gap-3">
             <LanguageSwitcher />
+
+            {isAuthenticated && isAdmin && location.pathname === '/' && (
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
+              >
+                {t('nav.dashboard')}
+              </button>
+            )}
 
             <Link
               to="/profile"
