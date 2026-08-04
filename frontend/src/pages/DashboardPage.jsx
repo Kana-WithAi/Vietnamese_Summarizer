@@ -42,14 +42,36 @@ function pickNumberByKeys(source, keys = []) {
 }
 
 function getDataObject(payload) {
-  return payload?.data || payload || {}
+  let current = payload
+
+  for (let i = 0; i < 4; i += 1) {
+    if (!current || typeof current !== 'object') break
+    if (Array.isArray(current)) return current
+
+    if (current.data && typeof current.data === 'object') {
+      current = current.data
+      continue
+    }
+    if (current.result && typeof current.result === 'object') {
+      current = current.result
+      continue
+    }
+    if (current.payload && typeof current.payload === 'object') {
+      current = current.payload
+      continue
+    }
+
+    break
+  }
+
+  return current || {}
 }
 
 function extractRecordList(payload) {
   const data = getDataObject(payload)
   if (Array.isArray(data)) return data
 
-  const candidates = ['items', 'results', 'records', 'data', 'series', 'stats', 'list']
+  const candidates = ['items', 'results', 'records', 'data', 'series', 'time_series', 'stats', 'list']
   for (const key of candidates) {
     if (Array.isArray(data[key])) return data[key]
   }
@@ -99,6 +121,107 @@ function extractFormatPoints(payload) {
       return { label: String(label).toUpperCase(), value }
     })
     .filter((point) => Number.isFinite(point.value))
+}
+
+function extractObjectPoints(source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return []
+
+  return Object.entries(source)
+    .map(([label, value]) => ({ label: String(label), value: Number(value) || 0 }))
+    .filter((point) => Number.isFinite(point.value))
+}
+
+function normalizeKeyName(value) {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase()
+}
+
+function deepFindNumber(source, aliases = []) {
+  if (!source || typeof source !== 'object') return null
+
+  const targetSet = new Set(aliases.map((key) => normalizeKeyName(key)))
+  const visited = new Set()
+  const queue = [source]
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || typeof current !== 'object') continue
+    if (visited.has(current)) continue
+    visited.add(current)
+
+    for (const [key, value] of Object.entries(current)) {
+      if (targetSet.has(normalizeKeyName(key))) {
+        const numeric = Number(value)
+        if (Number.isFinite(numeric)) return numeric
+      }
+
+      if (value && typeof value === 'object') {
+        queue.push(value)
+      }
+    }
+  }
+
+  return null
+}
+
+function deepFindObject(source, aliases = []) {
+  if (!source || typeof source !== 'object') return null
+
+  const targetSet = new Set(aliases.map((key) => normalizeKeyName(key)))
+  const visited = new Set()
+  const queue = [source]
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || typeof current !== 'object') continue
+    if (visited.has(current)) continue
+    visited.add(current)
+
+    for (const [key, value] of Object.entries(current)) {
+      if (targetSet.has(normalizeKeyName(key)) && value && typeof value === 'object' && !Array.isArray(value)) {
+        return value
+      }
+
+      if (value && typeof value === 'object') {
+        queue.push(value)
+      }
+    }
+  }
+
+  return null
+}
+
+function toIsoDateStringFromDisplay(value) {
+  const input = String(value || '').trim()
+  if (!input) return ''
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input
+
+  const slashMatch = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
+  if (!slashMatch) return ''
+
+  const day = Number(slashMatch[1])
+  const month = Number(slashMatch[2])
+  const yearRaw = Number(slashMatch[3])
+  const year = String(slashMatch[3]).length === 2 ? 2000 + yearRaw : yearRaw
+
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 9999) return ''
+
+  const mm = String(month).padStart(2, '0')
+  const dd = String(day).padStart(2, '0')
+  return `${year}-${mm}-${dd}`
+}
+
+function formatDisplayDate(isoDate) {
+  const value = String(isoDate || '')
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return value
+
+  const year = match[1].slice(-2)
+  const month = match[2]
+  const day = match[3]
+  return `${day}/${month}/${year}`
 }
 
 function getFeedbackComment(feedback, lang) {
@@ -193,6 +316,9 @@ function getFeedbackExistingReply(feedback) {
     feedback?.templateType,
     feedback?.admin_template_type,
     feedback?.adminTemplateType,
+    feedback?.reply_template_type,
+    feedback?.replyTemplateType,
+    feedback?.reply?.type,
     feedback?.reply?.template_type,
   ]
 
@@ -202,6 +328,10 @@ function getFeedbackExistingReply(feedback) {
       templateType = value.trim()
       break
     }
+  }
+
+  if (!templateType && replyContent) {
+    templateType = 'custom'
   }
 
   return { replyContent, templateType }
@@ -239,6 +369,8 @@ function DashboardPage() {
 
   const [fromDate, setFromDate] = useState('2026-07-01')
   const [toDate, setToDate] = useState('2026-08-01')
+  const [fromDateInput, setFromDateInput] = useState(formatDisplayDate('2026-07-01'))
+  const [toDateInput, setToDateInput] = useState(formatDisplayDate('2026-08-01'))
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState('')
   const [analyticsData, setAnalyticsData] = useState({ users: null, requests: null, fileFormats: null, activeUsers: null })
@@ -405,35 +537,70 @@ function DashboardPage() {
     return Number.isFinite(numeric) ? numeric : 0
   }
 
+  const usersTimeSeries = useMemo(() => extractRecordList(analyticsData.users), [analyticsData.users])
+
+  const usersByStatusMap = useMemo(
+    () => deepFindObject(analyticsData.users, ['users_by_status', 'usersByStatus']) || {},
+    [analyticsData.users],
+  )
+  const usersByRoleMap = useMemo(
+    () => deepFindObject(analyticsData.users, ['users_by_role', 'usersByRole']) || {},
+    [analyticsData.users],
+  )
+  const activeByPlanMap = useMemo(
+    () => deepFindObject(analyticsData.activeUsers, ['by_plan', 'byPlan']) || {},
+    [analyticsData.activeUsers],
+  )
+
   const analyticsCards = useMemo(() => {
-    const usersData = getDataObject(analyticsData.users)
-    const requestsData = getDataObject(analyticsData.requests)
-    const activeUsersData = getDataObject(analyticsData.activeUsers)
+    const fallbackTotalUsers = Object.values(usersByStatusMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
 
     const totalUsers =
-      pickNumberByKeys(usersData, ['total_users', 'totalUsers', 'total', 'count', 'registrations']) ||
-      extractTrendPoints(usersData).reduce((sum, point) => sum + point.value, 0)
+      deepFindNumber(analyticsData.users, [
+        'total_users_overall',
+        'totalUsersOverall',
+        'total_users',
+        'totalUsers',
+        'total',
+        'count',
+        'registrations',
+      ]) ||
+      fallbackTotalUsers ||
+      0
+
+    const newUsersFromSeries = usersTimeSeries.reduce((sum, point) => {
+      const value = Number(point?.new_users ?? point?.newUsers ?? point?.count ?? 0)
+      return sum + (Number.isFinite(value) ? value : 0)
+    }, 0)
+
+    const newUsers =
+      deepFindNumber(analyticsData.users, ['total_users_in_period', 'totalUsersInPeriod']) ||
+      newUsersFromSeries ||
+      0
 
     const totalRequests =
-      pickNumberByKeys(requestsData, ['total_requests', 'totalRequests', 'total', 'count', 'requests']) ||
-      extractTrendPoints(requestsData).reduce((sum, point) => sum + point.value, 0)
-
-    const dau =
-      pickNumberByKeys(activeUsersData, ['dau', 'daily_active_users', 'dailyActiveUsers', 'active_users', 'activeUsers']) ||
+      deepFindNumber(analyticsData.requests, ['total_requests', 'totalRequests', 'total', 'count', 'requests']) ||
       0
 
-    const mau =
-      pickNumberByKeys(activeUsersData, ['mau', 'monthly_active_users', 'monthlyActiveUsers']) ||
-      0
+    const fallbackActiveUsersCount = Object.values(activeByPlanMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
 
-    const ratio = mau > 0 ? (dau / mau) * 100 : 0
+    const activeUsersCount =
+      deepFindNumber(analyticsData.activeUsers, ['active_users_count', 'activeUsersCount', 'active_users', 'activeUsers']) ||
+      fallbackActiveUsersCount ||
+      0
 
     return [
       {
         key: 'users',
-        title: lang === 'vi' ? 'Tổng người dùng mới' : 'Total new users',
+        title: lang === 'vi' ? 'Tổng người dùng' : 'Total users',
         value: totalUsers,
         accent: 'text-cyan-300',
+      },
+      {
+        key: 'newUsers',
+        title: lang === 'vi' ? 'Người dùng mới' : 'New users',
+        value: newUsers,
+        accent: 'text-emerald-300',
       },
       {
         key: 'requests',
@@ -442,27 +609,46 @@ function DashboardPage() {
         accent: 'text-indigo-300',
       },
       {
-        key: 'dau',
-        title: 'DAU',
-        value: dau,
-        accent: 'text-emerald-300',
-      },
-      {
-        key: 'mauRatio',
-        title: lang === 'vi' ? 'Tỷ lệ DAU/MAU' : 'DAU/MAU ratio',
-        value: ratio,
+        key: 'activeUsers',
+        title: lang === 'vi' ? 'Đang hoạt động (5 phút)' : 'Active users (5 min)',
+        value: activeUsersCount,
         accent: 'text-amber-300',
-        suffix: '%',
       },
     ]
-  }, [analyticsData, lang])
+  }, [analyticsData.users, analyticsData.requests, analyticsData.activeUsers, usersByStatusMap, activeByPlanMap, usersTimeSeries, lang])
 
-  const userTrend = useMemo(() => extractTrendPoints(analyticsData.users), [analyticsData.users])
-  const requestTrend = useMemo(() => extractTrendPoints(analyticsData.requests), [analyticsData.requests])
+  const userStatusPoints = useMemo(
+    () => extractObjectPoints(usersByStatusMap),
+    [usersByStatusMap],
+  )
+  const userRolePoints = useMemo(
+    () => extractObjectPoints(usersByRoleMap),
+    [usersByRoleMap],
+  )
+  const activeByPlanPoints = useMemo(
+    () => extractObjectPoints(activeByPlanMap),
+    [activeByPlanMap],
+  )
+  const requestInsights = useMemo(
+    () => ({
+      characters: deepFindNumber(analyticsData.requests, ['total_characters_processed', 'totalCharactersProcessed']) || 0,
+      words: deepFindNumber(analyticsData.requests, ['total_words_processed', 'totalWordsProcessed']) || 0,
+      latency: deepFindNumber(analyticsData.requests, ['avg_latency_ms', 'avgLatencyMs']) || 0,
+    }),
+    [analyticsData.requests],
+  )
+  const activeUsersWindowMinutes = useMemo(
+    () => deepFindNumber(analyticsData.activeUsers, ['window_minutes', 'windowMinutes']) || 5,
+    [analyticsData.activeUsers],
+  )
+
   const fileFormatTrend = useMemo(() => extractFormatPoints(analyticsData.fileFormats), [analyticsData.fileFormats])
 
-  const userTrendMax = useMemo(() => Math.max(1, ...userTrend.map((point) => point.value)), [userTrend])
-  const requestTrendMax = useMemo(() => Math.max(1, ...requestTrend.map((point) => point.value)), [requestTrend])
+  const userCompositionMax = useMemo(
+    () => Math.max(1, ...[...userStatusPoints, ...userRolePoints].map((point) => point.value)),
+    [userStatusPoints, userRolePoints],
+  )
+  const activeByPlanMax = useMemo(() => Math.max(1, ...activeByPlanPoints.map((point) => point.value)), [activeByPlanPoints])
   const fileFormatMax = useMemo(() => Math.max(1, ...fileFormatTrend.map((point) => point.value)), [fileFormatTrend])
 
   const resetPlanForm = () => {
@@ -604,8 +790,38 @@ function DashboardPage() {
           <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo phân tích' : 'Analytics reports'}</h2>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+          <input
+            type="text"
+            value={fromDateInput}
+            onChange={(e) => setFromDateInput(e.target.value)}
+            onBlur={() => {
+              const parsed = toIsoDateStringFromDisplay(fromDateInput)
+              if (parsed) {
+                setFromDate(parsed)
+                setFromDateInput(formatDisplayDate(parsed))
+              } else {
+                setFromDateInput(formatDisplayDate(fromDate))
+              }
+            }}
+            placeholder="DD/MM/YY"
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+          />
+          <input
+            type="text"
+            value={toDateInput}
+            onChange={(e) => setToDateInput(e.target.value)}
+            onBlur={() => {
+              const parsed = toIsoDateStringFromDisplay(toDateInput)
+              if (parsed) {
+                setToDate(parsed)
+                setToDateInput(formatDisplayDate(parsed))
+              } else {
+                setToDateInput(formatDisplayDate(toDate))
+              }
+            }}
+            placeholder="DD/MM/YY"
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+          />
           <button type="button" onClick={loadAnalytics} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
             {lang === 'vi' ? 'Làm mới' : 'Refresh'}
           </button>
@@ -630,51 +846,97 @@ function DashboardPage() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Xu hướng người dùng mới' : 'New user trend'}</p>
-              {userTrend.length === 0 ? (
+              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ người dùng' : 'User segmentation'}</p>
+              {[...userStatusPoints, ...userRolePoints].length === 0 ? (
                 <p className="mt-3 text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}</p>
               ) : (
-                <div className="mt-4 space-y-2">
-                  {userTrend.slice(0, 8).map((point) => (
-                    <div key={`${point.label}-${point.value}`}>
-                      <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                        <span className="truncate pr-2">{point.label}</span>
-                        <span>{formatMetric(point.value)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-surface-border/60">
-                        <div
-                          className="h-2 rounded-full bg-cyan-400"
-                          style={{ width: `${Math.max(4, (point.value / userTrendMax) * 100)}%` }}
-                        />
-                      </div>
+                <div className="mt-4 space-y-3">
+                  {userStatusPoints.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo trạng thái' : 'By status'}</p>
+                      {userStatusPoints.map((point) => (
+                        <div key={`status-${point.label}-${point.value}`}>
+                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                            <span className="truncate pr-2">{point.label}</span>
+                            <span>{formatMetric(point.value)}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-border/60">
+                            <div
+                              className="h-2 rounded-full bg-cyan-400"
+                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+
+                  {userRolePoints.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo vai trò' : 'By role'}</p>
+                      {userRolePoints.map((point) => (
+                        <div key={`role-${point.label}-${point.value}`}>
+                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                            <span className="truncate pr-2">{point.label}</span>
+                            <span>{formatMetric(point.value)}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-border/60">
+                            <div
+                              className="h-2 rounded-full bg-indigo-400"
+                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Xu hướng yêu cầu API' : 'API request trend'}</p>
-              {requestTrend.length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}</p>
-              ) : (
-                <div className="mt-4 space-y-2">
-                  {requestTrend.slice(0, 8).map((point) => (
-                    <div key={`${point.label}-${point.value}`}>
+              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Yêu cầu & người dùng realtime' : 'Requests & realtime users'}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Ký tự xử lý' : 'Chars processed'}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.characters)}</p>
+                </div>
+                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Từ xử lý' : 'Words processed'}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.words)}</p>
+                </div>
+                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Độ trễ TB' : 'Avg latency'}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.latency)} ms</p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  {lang === 'vi' ? 'Đang hoạt động theo gói' : 'Active by plan'}
+                  <span className="ml-2 normal-case tracking-normal text-slate-400">
+                    ({lang === 'vi' ? 'cửa sổ' : 'window'} {activeUsersWindowMinutes} {lang === 'vi' ? 'phút' : 'minutes'})
+                  </span>
+                </p>
+                {activeByPlanPoints.length === 0 ? (
+                  <p className="text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu realtime.' : 'No realtime plan data yet.'}</p>
+                ) : (
+                  activeByPlanPoints.map((point) => (
+                    <div key={`plan-${point.label}-${point.value}`}>
                       <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
                         <span className="truncate pr-2">{point.label}</span>
                         <span>{formatMetric(point.value)}</span>
                       </div>
                       <div className="h-2 rounded-full bg-surface-border/60">
                         <div
-                          className="h-2 rounded-full bg-indigo-400"
-                          style={{ width: `${Math.max(4, (point.value / requestTrendMax) * 100)}%` }}
+                          className="h-2 rounded-full bg-emerald-400"
+                          style={{ width: `${Math.max(4, (point.value / activeByPlanMax) * 100)}%` }}
                         />
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
@@ -901,7 +1163,9 @@ function DashboardPage() {
               const displayedReplyContent = isReplied
                 ? (existingReply.replyContent || replyForm.reply_content || '')
                 : (replyForm.reply_content ?? existingReply.replyContent ?? '')
-              const selectedTemplateValue = replyForm.template_type || existingReply.templateType || ''
+              const selectedTemplateValue = isReplied
+                ? (existingReply.templateType || (existingReply.replyContent ? 'custom' : ''))
+                : (replyForm.template_type || existingReply.templateType || '')
               const selectedTemplateLabel = selectedTemplateValue ? getFeedbackTemplateLabel(selectedTemplateValue, t) : ''
               const hasSelectedTemplateInList = templates.some((tpl, tplIndex) => {
                 const value = tpl?.type || tpl?.template_type || `template-${tplIndex}`
@@ -1014,7 +1278,6 @@ function DashboardPage() {
               }`}
             >
               <span>{t(item.labelKey)}</span>
-              {activeNav === item.id && <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[11px] uppercase tracking-[0.24em] text-accent">{t('dashboard.active')}</span>}
             </button>
           ))}
         </nav>

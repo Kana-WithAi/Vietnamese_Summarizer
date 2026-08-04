@@ -78,6 +78,52 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   return data
 }
 
+async function requestBinary(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  const config = {
+    method,
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...headers,
+    },
+  }
+
+  if (auth) {
+    const token = localStorage.getItem('accessToken')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+  }
+
+  if (body !== undefined && body !== null) {
+    config.body = isFormData ? body : JSON.stringify(body)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, config)
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') || ''
+    let data = null
+    if (contentType.includes('application/json')) {
+      data = await response.json()
+    } else {
+      data = await response.text()
+    }
+
+    const error = new Error(getErrorMessage(data))
+    error.status = response.status
+    error.data = data
+    throw error
+  }
+
+  const blob = await response.blob()
+  return {
+    blob,
+    contentType: response.headers.get('content-type') || '',
+    contentDisposition: response.headers.get('content-disposition') || '',
+  }
+}
+
 function buildQuery(params = {}) {
   const query = new URLSearchParams()
 
@@ -109,8 +155,15 @@ export const subscriptionsApi = {
 }
 
 export const summarizeApi = {
-  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: false }),
-  file: (payload) => request('/summarize/file', { method: 'POST', body: payload, auth: false }),
+  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: true }),
+  file: (payload) => requestBinary('/summarize/file', { method: 'POST', body: payload, auth: true }),
+}
+
+export const feedbacksApi = {
+  list: (params = {}) => request(`/feedbacks${buildQuery(params)}`),
+  create: (payload) => request('/feedbacks', { method: 'POST', body: payload, auth: true }),
+  update: (id, payload) => request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true }),
+  remove: (id) => request(`/feedbacks/${id}`, { method: 'DELETE', auth: true }),
 }
 
 export const historyApi = {
@@ -119,12 +172,21 @@ export const historyApi = {
 
     if (params.page) query.set('page', String(params.page))
     if (params.limit) query.set('limit', String(params.limit))
+    if (params.is_bookmarked !== undefined && params.is_bookmarked !== null) {
+      query.set('is_bookmarked', String(params.is_bookmarked))
+    }
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
     return request(`/history${suffix}`, { auth: true })
   },
   getById: (id) => request(`/history/${id}`, { auth: true }),
   updateTitle: (id, title) => request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true }),
+  setBookmark: (id, isBookmarked) =>
+    request(`/history/${id}/bookmark`, {
+      method: 'PUT',
+      body: { is_bookmarked: Boolean(isBookmarked) },
+      auth: true,
+    }),
   update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
   removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
   removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),

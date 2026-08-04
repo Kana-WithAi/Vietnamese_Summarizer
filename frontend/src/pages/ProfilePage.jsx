@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 import { authApi, paymentsApi, sessionsApi } from '../utils/api'
 
@@ -76,7 +76,7 @@ function ProfilePage() {
 
   useEffect(() => {
     const loadSessions = async () => {
-      if (activeTab !== 'sessions') return
+      if (activeTab !== 'sessions' && activeTab !== 'notifications') return
 
       const token = localStorage.getItem('accessToken')
       if (!token) {
@@ -110,7 +110,7 @@ function ProfilePage() {
 
   useEffect(() => {
     const loadTransactions = async () => {
-      if (activeTab !== 'transactions') return
+      if (activeTab !== 'transactions' && activeTab !== 'notifications') return
 
       const token = localStorage.getItem('accessToken')
       if (!token) {
@@ -179,6 +179,44 @@ function ProfilePage() {
     return lang === 'vi' ? 'Không có thông tin bổ sung' : 'No additional details'
   }
 
+  const toTimestamp = (value) => {
+    if (!value) return 0
+    const parsed = new Date(value).getTime()
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  const formatActivityTime = (value) => {
+    const timestamp = toTimestamp(value)
+    if (!timestamp) return lang === 'vi' ? 'Vừa xong' : 'Just now'
+
+    const diffMs = Date.now() - timestamp
+    const minute = 60 * 1000
+    const hour = 60 * minute
+    const day = 24 * hour
+
+    if (diffMs < minute) return lang === 'vi' ? 'Vừa xong' : 'Just now'
+    if (diffMs < hour) {
+      const minutes = Math.max(1, Math.floor(diffMs / minute))
+      return lang === 'vi' ? `${minutes} phút trước` : `${minutes} min ago`
+    }
+    if (diffMs < day) {
+      const hours = Math.max(1, Math.floor(diffMs / hour))
+      return lang === 'vi' ? `${hours} giờ trước` : `${hours} hours ago`
+    }
+
+    try {
+      return new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(timestamp))
+    } catch {
+      return String(value)
+    }
+  }
+
   const getTransactionId = (transaction, fallbackIndex) => {
     return transaction?.id || transaction?.order_code || transaction?.orderCode || `tx-${fallbackIndex}`
   }
@@ -223,6 +261,54 @@ function ProfilePage() {
   const getTransactionDate = (transaction) => {
     return transaction?.created_at || transaction?.createdAt || transaction?.updated_at || transaction?.updatedAt || ''
   }
+
+  const activityItems = useMemo(() => {
+    const sessionItems = sessions.map((session, index) => {
+      const isCurrent = Boolean(session?.is_current || session?.current)
+      const timestamp = session?.last_seen_at || session?.lastSeenAt || session?.updated_at || session?.created_at || ''
+
+      return {
+        id: `session-${getSessionId(session, index)}`,
+        type: isCurrent ? 'session-current' : 'session',
+        title: isCurrent ? t('profile.activity.currentSessionTitle') : t('profile.activity.sessionTitle'),
+        description: `${getSessionName(session)} · ${getSessionDetail(session)}`,
+        at: timestamp,
+      }
+    })
+
+    const transactionItems = transactions.map((transaction, index) => {
+      const status = getTransactionStatus(transaction)
+      const statusLabel = getTransactionStatusLabel(status)
+      const amount = getTransactionAmount(transaction)
+      const orderId = getTransactionId(transaction, index)
+
+      return {
+        id: `transaction-${orderId}`,
+        type:
+          status === 'paid' || status === 'completed' || status === 'success'
+            ? 'payment-success'
+            : status === 'pending'
+              ? 'payment-pending'
+              : 'payment-failed',
+        title: t('profile.activity.transactionTitle'),
+        description: `${statusLabel} · ${amount} · ${t('profile.transactionsOrder')}: ${orderId}`,
+        at: getTransactionDate(transaction),
+      }
+    })
+
+    const baseProfileItem = profile?.email
+      ? [{
+        id: `profile-${profile.email}`,
+        type: 'profile',
+        title: t('profile.activity.profileTitle'),
+        description: `${t('profile.emailAddress')}: ${profile.email}`,
+        at: '',
+      }]
+      : []
+
+    return [...sessionItems, ...transactionItems, ...baseProfileItem]
+      .sort((a, b) => toTimestamp(b.at) - toTimestamp(a.at))
+  }, [sessions, transactions, profile?.email, lang, t])
 
   const handleRevokeSession = async (sessionId) => {
     setSessionActionLoading(sessionId)
@@ -590,29 +676,52 @@ function ProfilePage() {
             {activeTab === 'notifications' && (
               <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-raised/70 p-6 shadow-sm shadow-black/10">
                 <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{lang === 'vi' ? 'Thông báo' : 'Notifications'}</p>
-                  <h3 className="text-xl font-semibold text-white">{lang === 'vi' ? 'Cài đặt thông báo của bạn' : 'Your notification preferences'}</h3>
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('profile.activity.section')}</p>
+                  <h3 className="text-xl font-semibold text-white">{t('profile.activity.title')}</h3>
+                  <p className="text-sm text-slate-400">{t('profile.activity.subtitle')}</p>
                 </div>
-                <div className="space-y-3">
-                  {[
-                    { title: lang === 'vi' ? 'Cập nhật hệ thống' : 'System updates', desc: lang === 'vi' ? 'Nhận thông báo khi có tính năng mới.' : 'Get notified when new features launch.' },
-                    { title: lang === 'vi' ? 'Nhắc nhở sử dụng' : 'Usage reminders', desc: lang === 'vi' ? 'Gửi tôi lời nhắc khi cần tận dụng gói đăng ký.' : 'Remind me when it is time to make better use of my plan.' },
-                  ].map((item) => (
-                    <div key={item.title} className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-white">{item.title}</p>
-                          <p className="text-sm text-slate-500">{item.desc}</p>
-                        </div>
-                        <label className="relative inline-flex cursor-pointer items-center">
-                          <input type="checkbox" className="peer sr-only" defaultChecked />
-                          <div className="h-6 w-11 rounded-full bg-slate-700 peer-checked:bg-accent" />
-                          <div className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5" />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+
+                {(sessionsError || transactionsError) && (
+                  <p className="text-sm text-amber-300">{sessionsError || transactionsError}</p>
+                )}
+
+                {sessionsLoading || transactionsLoading ? (
+                  <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                    {t('profile.activity.loading')}
+                  </div>
+                ) : activityItems.length === 0 ? (
+                  <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
+                    {t('profile.activity.empty')}
+                  </div>
+                ) : (
+                  <div className="relative space-y-4 pl-7 before:absolute before:bottom-0 before:left-2.5 before:top-1 before:w-px before:bg-surface-border">
+                    {activityItems.map((item) => {
+                      const dotClass =
+                        item.type === 'payment-success'
+                          ? 'bg-emerald-400'
+                          : item.type === 'payment-failed'
+                            ? 'bg-rose-400'
+                            : item.type === 'payment-pending'
+                              ? 'bg-amber-400'
+                              : item.type === 'session-current'
+                                ? 'bg-cyan-400'
+                                : 'bg-slate-400'
+
+                      return (
+                        <article key={item.id} className="relative rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
+                          <span className={`absolute -left-[26px] top-4 h-3 w-3 rounded-full ring-4 ring-surface-raised ${dotClass}`} />
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-white">{item.title}</p>
+                              <p className="mt-1 text-sm text-slate-400">{item.description}</p>
+                            </div>
+                            <span className="text-xs text-slate-500">{formatActivityTime(item.at)}</span>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

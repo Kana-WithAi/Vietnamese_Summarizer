@@ -19,6 +19,12 @@ function LoginPage() {
     return user?.role || user?.role_name || user?.roleName || ''
   }
 
+  const isBannedUser = (payload) => {
+    const user = payload?.user || payload?.data?.user || payload?.data || payload
+    const status = String(user?.status || user?.account_status || '').trim().toLowerCase()
+    return status === 'banned' || user?.is_banned === true || user?.isBanned === true
+  }
+
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
     setErrors((prev) => ({ ...prev, [field]: '' }))
@@ -55,6 +61,12 @@ function LoginPage() {
         password: form.password,
       })
 
+      if (isBannedUser(response)) {
+        localStorage.removeItem('accessToken')
+        setSubmitError(t('loginPage.bannedError'))
+        return
+      }
+
       const token = response?.token || response?.accessToken || response?.data?.token
       let role = extractRole(response)
 
@@ -69,6 +81,11 @@ function LoginPage() {
         if (!role) {
           try {
             const meResponse = await authApi.me()
+            if (isBannedUser(meResponse)) {
+              localStorage.removeItem('accessToken')
+              setSubmitError(t('loginPage.bannedError'))
+              return
+            }
             role = extractRole(meResponse)
           } catch {
             // Ignore role lookup failure and continue with default route.

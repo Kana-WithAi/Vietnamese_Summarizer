@@ -1,11 +1,127 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { summarizeApi } from '../utils/api'
+import { feedbacksApi, historyApi, summarizeApi } from '../utils/api'
 import { countTextStats } from '../utils/textStats'
 import { jsPDF } from 'jspdf'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
 
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
+const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
+
+function extractSummaryId(response) {
+  const data = response?.data || response || {}
+  const candidates = [
+    data?.summary_id,
+    data?.summaryId,
+    data?.history_id,
+    data?.historyId,
+    data?.id,
+    response?.summary_id,
+    response?.id,
+  ]
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+
+function extractSummaryIdFromHistoryResponse(response) {
+  const data = response?.data || response || {}
+  const items =
+    data?.items ||
+    data?.histories ||
+    data?.results ||
+    (Array.isArray(data) ? data : [])
+
+  const latest = Array.isArray(items) && items.length > 0 ? items[0] : null
+  if (!latest || typeof latest !== 'object') return ''
+
+  const candidates = [latest?.id, latest?.history_id, latest?.summary_id]
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+
+function getSummarizeErrorMessage(error, t, lang) {
+  const status = Number(error?.status || 0)
+  const rawText = String(error?.data || error?.message || '').toLowerCase()
+
+  const looksLikeLimitError =
+    status === 413 ||
+    status === 422 ||
+    rawText.includes('character limit') ||
+    rawText.includes('too long') ||
+    rawText.includes('limit')
+
+  if (status === 401 || status === 403) {
+    return t('homePage.errors.authRequired')
+  }
+
+  if (looksLikeLimitError) {
+    return lang === 'vi'
+      ? 'Văn bản vượt quá giới hạn của gói hiện tại. Hãy rút ngắn nội dung hoặc nâng cấp gói để tóm tắt.'
+      : 'Your text exceeds the limit for your current plan. Shorten it or upgrade your tier to continue.'
+  }
+
+  if (status >= 500) {
+    return t('homePage.errors.serverError')
+  }
+
+  return t('homePage.errors.generic')
+}
+
+function getFileUploadErrorMessage(error, t, lang) {
+  const status = Number(error?.status || 0)
+  const data = error?.data || {}
+  const code = String(data?.code || data?.error_code || '').toUpperCase()
+  const rawText = String(data?.message || data?.error || error?.message || '').toLowerCase()
+
+  if (status === 400 || code === 'UNSUPPORTED_FILE') {
+    return lang === 'vi'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng dùng .pdf hoặc .docx.'
+      : 'Unsupported file format. Please upload .pdf or .docx files.'
+  }
+
+  const looksLikeContentLimitError =
+    code === 'CHAR_LIMIT_EXCEEDED' ||
+    code === 'WORD_LIMIT_EXCEEDED' ||
+    code === 'INPUT_LIMIT_EXCEEDED' ||
+    rawText.includes('character limit') ||
+    rawText.includes('word limit') ||
+    rawText.includes('input limit') ||
+    rawText.includes('too long') ||
+    (rawText.includes('limit') && !rawText.includes('rate limit'))
+
+  if (looksLikeContentLimitError) {
+    return lang === 'vi'
+      ? 'Nội dung vượt quá giới hạn ký tự/từ của gói hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói để tiếp tục.'
+      : 'The content exceeds your current plan word/character limit. Shorten the content or upgrade your plan to continue.'
+  }
+
+  if (status === 429 || code === 'DAILY_EXTRACT_LIMIT_EXCEEDED') {
+    return lang === 'vi'
+      ? 'Bạn đã hết lượt trích xuất tệp trong hôm nay. Vui lòng thử lại vào ngày mai.'
+      : 'You have reached your daily file extraction limit. Please try again tomorrow.'
+  }
+
+  if (status === 401 || status === 403) {
+    return t('homePage.errors.authRequired')
+  }
+
+  if (status >= 500) {
+    return t('homePage.errors.serverError')
+  }
+
+  return t('homePage.errors.generic')
+}
 
 function HomePage() {
   const { t, lang } = useLanguage()
@@ -26,12 +142,58 @@ function HomePage() {
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
+  const [feedbackRating, setFeedbackRating] = useState('dislike')
+  const [feedbackReason, setFeedbackReason] = useState('missing_info')
   const [feedbackText, setFeedbackText] = useState('')
-  const [feedbackOptions, setFeedbackOptions] = useState({
-    incoherent: false,
-    grammar: false,
-    spelling: false,
-  })
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState('')
+  const [lastSummaryId, setLastSummaryId] = useState('')
+  const [selectedUploadFile, setSelectedUploadFile] = useState(null)
+
+  useEffect(() => {
+    let clearMessageTimer = null
+
+    const handleLoadFromHistory = (event) => {
+      const payload = event?.detail || {}
+      const nextInputText = String(payload?.inputText || '')
+      const nextSummaryText = String(payload?.summary || '')
+      const nextSummaryId = String(payload?.summaryId || '').trim()
+
+      if (!nextInputText && !nextSummaryText) return
+
+      setInputText(nextInputText)
+      setSummary(nextSummaryText)
+      setLastSummaryId(nextSummaryId)
+      setSelectedUploadFile(null)
+      setMode(nextSummaryText ? 'summary' : 'extract')
+      setErrorMessage('')
+      setFeedbackSubmitError('')
+      setIsFeedbackOpen(false)
+      setSuccessMessage(lang === 'vi' ? 'Đã tải nội dung từ lịch sử.' : 'Loaded content from history.')
+
+      if (clearMessageTimer) {
+        window.clearTimeout(clearMessageTimer)
+      }
+      clearMessageTimer = window.setTimeout(() => setSuccessMessage(''), 3000)
+    }
+
+    window.addEventListener('history:load-summary', handleLoadFromHistory)
+    return () => {
+      window.removeEventListener('history:load-summary', handleLoadFromHistory)
+      if (clearMessageTimer) {
+        window.clearTimeout(clearMessageTimer)
+      }
+    }
+  }, [lang])
+
+  const resolveLatestSummaryId = async () => {
+    try {
+      const response = await historyApi.list({ page: 1, limit: 1 })
+      return extractSummaryIdFromHistoryResponse(response)
+    } catch {
+      return ''
+    }
+  }
 
   const inputStats = countTextStats(inputText)
   const outputStats = countTextStats(summary)
@@ -40,38 +202,108 @@ function HomePage() {
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) setInputText(text)
+      if (text) {
+        setInputText(text)
+        setSelectedUploadFile(null)
+      }
     } catch {
       /* clipboard unavailable */
     }
   }
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (e) => setInputText(String(e.target?.result ?? ''))
-    reader.readAsText(file)
+
+    setErrorMessage('')
+    setSuccessMessage('')
+    setSelectedUploadFile(file)
+    setInputText(`[FILE] ${file.name}`)
+    setSummary('')
+    setLastSummaryId('')
+    setSuccessMessage(
+      lang === 'vi'
+        ? 'Đã chọn tệp. Nhấn Tóm tắt để xử lý tệp.'
+        : 'File selected. Click Summarize to process the file.',
+    )
+    window.setTimeout(() => setSuccessMessage(''), 3000)
     event.target.value = ''
   }
 
   const handleClear = () => {
     setInputText('')
     setSummary('')
+    setLastSummaryId('')
+    setSelectedUploadFile(null)
     setErrorMessage('')
     setSuccessMessage('')
   }
 
+  const deriveDownloadNameFromDisposition = (contentDisposition, fallbackName = 'summary.docx') => {
+    if (!contentDisposition) return fallbackName
+
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1])
+      } catch {
+        return utf8Match[1]
+      }
+    }
+
+    const simpleMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+    if (simpleMatch?.[1]) return simpleMatch[1]
+    return fallbackName
+  }
+
   const handleSummarize = async () => {
-    if (!inputText.trim()) return
+    if (!inputText.trim() && !selectedUploadFile) return
 
     setIsLoading(true)
     setErrorMessage('')
     setSuccessMessage('')
 
     try {
-      const response = await summarizeApi.text({ text: inputText })
+      if (selectedUploadFile) {
+        const formData = new FormData()
+        formData.append('file', selectedUploadFile)
+
+        const response = await summarizeApi.file(formData)
+        const fallbackName = `${selectedUploadFile.name.replace(/\.(pdf|docx)$/i, '')}-summary.${selectedUploadFile.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx'}`
+        const outputName = deriveDownloadNameFromDisposition(response?.contentDisposition, fallbackName)
+
+        const url = URL.createObjectURL(response.blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = outputName
+        anchor.click()
+        URL.revokeObjectURL(url)
+
+        setSummary('')
+        setSuccessMessage(
+          lang === 'vi'
+            ? 'Tóm tắt tệp thành công. Kết quả đã được tải xuống.'
+            : 'File summarized successfully. The result has been downloaded.',
+        )
+        window.setTimeout(() => setSuccessMessage(''), 3000)
+        return
+      }
+
+      const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
+      const response = await summarizeApi.text({
+        text: inputText,
+        mode,
+        output_format: outputFormat,
+        summary_length_ratio: selectedSummaryLength,
+      })
       const nextSummary = response?.data?.summary || ''
+      const directSummaryId = extractSummaryId(response)
+      if (directSummaryId) {
+        setLastSummaryId(directSummaryId)
+      } else if (nextSummary) {
+        const fallbackSummaryId = await resolveLatestSummaryId()
+        setLastSummaryId(fallbackSummaryId)
+      }
 
       if (nextSummary) {
         setSummary(nextSummary)
@@ -82,7 +314,11 @@ function HomePage() {
       }
     } catch (error) {
       setSummary('')
-      setErrorMessage(error?.message || (lang === 'vi' ? 'Không thể kết nối tới dịch vụ tóm tắt.' : 'Unable to reach the summarization service.'))
+      if (selectedUploadFile) {
+        setErrorMessage(getFileUploadErrorMessage(error, t, lang))
+      } else {
+        setErrorMessage(getSummarizeErrorMessage(error, t, lang))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -95,22 +331,59 @@ function HomePage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const toggleFeedbackOption = (option) => {
-    setFeedbackOptions((prev) => ({
-      ...prev,
-      [option]: !prev[option],
-    }))
+  const openFeedbackForm = (rating) => {
+    setFeedbackRating(rating)
+    setFeedbackReason('missing_info')
+    setFeedbackText('')
+    setFeedbackSubmitError('')
+    setIsFeedbackOpen(true)
   }
 
-  const handleSendFeedback = () => {
-    if (!summary) return
+  const closeFeedbackForm = () => {
     setIsFeedbackOpen(false)
-    setFeedbackText('')
-    setFeedbackOptions({
-      incoherent: false,
-      grammar: false,
-      spelling: false,
-    })
+    setFeedbackSubmitError('')
+  }
+
+  const handleSendFeedback = async () => {
+    if (!summary) return
+
+    const trimmedComment = feedbackText.trim()
+    const resolvedSummaryId = lastSummaryId || await resolveLatestSummaryId()
+    if (!resolvedSummaryId) {
+      setFeedbackSubmitError(t('feedback.summaryIdRequired'))
+      return
+    }
+    if (resolvedSummaryId !== lastSummaryId) {
+      setLastSummaryId(resolvedSummaryId)
+    }
+    if (!trimmedComment) {
+      setFeedbackSubmitError(t('feedback.commentRequired'))
+      return
+    }
+
+    setFeedbackSubmitting(true)
+    setFeedbackSubmitError('')
+
+    try {
+      await feedbacksApi.create({
+        summary_id: resolvedSummaryId,
+        rating: feedbackRating,
+        error_reason: feedbackRating === 'dislike' ? feedbackReason : undefined,
+        comment: trimmedComment,
+      })
+
+      closeFeedbackForm()
+      setSuccessMessage(t('feedback.submitted'))
+      window.setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (error) {
+      if (error?.status === 401 || error?.status === 403) {
+        setFeedbackSubmitError(t('feedback.authRequired'))
+      } else {
+        setFeedbackSubmitError(t('feedback.submitFailed'))
+      }
+    } finally {
+      setFeedbackSubmitting(false)
+    }
   }
 
   const buildDownloadFileName = (ext, customName = downloadName) => {
@@ -336,7 +609,12 @@ function HomePage() {
           <div className="relative flex-1">
             <textarea
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                setInputText(e.target.value)
+                if (selectedUploadFile) {
+                  setSelectedUploadFile(null)
+                }
+              }}
               placeholder={t('input.placeholder')}
               className="h-full min-h-[400px] w-full resize-none bg-transparent px-4 py-3 text-sm leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none lg:min-h-[440px]"
             />
@@ -373,7 +651,7 @@ function HomePage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".txt,.md,.doc,.docx"
+                  accept=".docx,.pdf"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -418,7 +696,7 @@ function HomePage() {
                   {/* Thumbs Up Button */}
                   <button
                     type="button"
-                    onClick={() => { }}
+                    onClick={() => openFeedbackForm('like')}
                     className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-accent"
                     aria-label={t('output.like')}
                   >
@@ -439,7 +717,7 @@ function HomePage() {
                   {/* Thumbs Down Button */}
                   <button
                     type="button"
-                    onClick={() => setIsFeedbackOpen(true)}
+                    onClick={() => openFeedbackForm('dislike')}
                     className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-red-400"
                     aria-label={t('output.dislike')}
                   >
@@ -574,7 +852,7 @@ function HomePage() {
           <button
             type="button"
             onClick={handleSummarize}
-            disabled={isEmpty || isLoading}
+            disabled={(!inputText.trim() && !selectedUploadFile) || isLoading}
             className="group relative min-w-[200px] overflow-hidden rounded-2xl bg-accent px-10 py-4 text-base font-bold text-surface-base shadow-xl shadow-accent/30 transition hover:bg-accent-hover hover:shadow-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none sm:min-w-[260px] sm:text-lg"
           >
             <span className="relative z-10 flex items-center justify-center gap-2">
@@ -622,7 +900,7 @@ function HomePage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsFeedbackOpen(false)}
+                onClick={closeFeedbackForm}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -631,54 +909,52 @@ function HomePage() {
               </button>
             </div>
             <div className="space-y-4 px-6 py-5">
-              <div className="space-y-3 rounded-3xl bg-surface-base p-4">
-                <p className="text-sm font-semibold text-slate-200">{t('feedback.whyUnhappy')}</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    { key: 'incoherent', label: t('feedback.optionIncoherent') },
-                    { key: 'grammar', label: t('feedback.optionGrammar') },
-                    { key: 'spelling', label: t('feedback.optionSpelling') },
-                  ].map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => toggleFeedbackOption(option.key)}
-                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${
-                        feedbackOptions[option.key]
-                          ? 'border-accent bg-accent/10 text-white'
-                          : 'border-surface-border bg-surface-base text-slate-300 hover:border-slate-400'
-                      }`}
-                    >
-                      <span className={`h-4 w-4 rounded-full border ${feedbackOptions[option.key] ? 'border-accent bg-accent' : 'border-slate-500'}`} />
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
+              {feedbackRating === 'dislike' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-reason">
+                    {t('feedback.errorReasonLabel')}
+                  </label>
+                  <select
+                    id="feedback-reason"
+                    value={feedbackReason}
+                    onChange={(e) => setFeedbackReason(e.target.value)}
+                    className="w-full rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  >
+                    {DISLIKE_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>{t(`feedback.reasons.${reason}`)}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
-                  {t('feedback.detailsLabel')}
+                  {feedbackRating === 'like' ? t('feedback.likeCommentLabel') : t('feedback.detailsLabel')}
                 </label>
                 <textarea
                   id="feedback-detail"
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
                   rows={4}
-                  placeholder={t('feedback.placeholder')}
+                  placeholder={feedbackRating === 'like' ? t('feedback.likePlaceholder') : t('feedback.placeholder')}
                   className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </div>
+              {feedbackSubmitError && (
+                <p className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+                  {feedbackSubmitError}
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-3 border-t border-surface-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm text-slate-400">{t('feedback.note')}</span>
               <button
                 type="button"
                 onClick={handleSendFeedback}
-                disabled={!summary}
+                disabled={!summary || feedbackSubmitting}
                 className="inline-flex items-center justify-center rounded-3xl bg-accent px-5 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:opacity-40"
               >
-                {t('feedback.send')}
+                {feedbackSubmitting ? t('feedback.sending') : t('feedback.send')}
               </button>
             </div>
           </div>

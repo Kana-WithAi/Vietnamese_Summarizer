@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
 import { historyApi } from '../utils/api'
@@ -61,6 +62,7 @@ function formatDate(value, lang) {
 
 function HistoryOverlay() {
   const overlayRef = useRef(null)
+  const navigate = useNavigate()
   const { t, lang } = useLanguage()
   const { isHistoryOpen, closeHistory } = useHistory()
 
@@ -208,7 +210,63 @@ function HistoryOverlay() {
 
   const handleViewDetail = async (item, index) => {
     const id = getHistoryId(item, index)
+    if (selectedId === id) {
+      setSelectedId('')
+      setSelectedItem(null)
+      setDetailError('')
+      return
+    }
     await loadHistoryDetail(id)
+  }
+
+  const handleSelectForSummary = async (item, index) => {
+    const id = getHistoryId(item, index)
+    if (!id || id.startsWith('history-')) return
+
+    setActionLoadingId(`open-${id}`)
+    setError('')
+
+    try {
+      const response = await historyApi.getById(id)
+      const payload = response?.data || response
+      const history = payload?.item || payload?.history || payload || item
+
+      const inputText = String(
+        history?.source_text ||
+        history?.sourceText ||
+        history?.input_text ||
+        history?.inputText ||
+        '',
+      )
+      const outputText = String(
+        history?.summary ||
+        history?.output_text ||
+        history?.outputText ||
+        history?.result ||
+        history?.content ||
+        '',
+      )
+      const summaryId = String(
+        history?.id || history?.history_id || history?.historyId || history?.summary_id || history?.summaryId || '',
+      ).trim()
+
+      window.dispatchEvent(
+        new CustomEvent('history:load-summary', {
+          detail: {
+            inputText,
+            summary: outputText,
+            summaryId,
+          },
+        }),
+      )
+
+      closeHistory()
+      navigate('/')
+    } catch (nextError) {
+      setError(nextError?.message || t('historyOverlay.errors.loadDetail'))
+    } finally {
+      setActionLoadingId('')
+    }
   }
 
   const handleStartEdit = (item, index) => {
@@ -395,46 +453,6 @@ function HistoryOverlay() {
 
           {error && <p className="mb-3 text-sm text-rose-300">{error}</p>}
 
-          {selectedId && (
-            <div className="mb-4 rounded-xl border border-surface-border/40 bg-surface-base/40 px-4 py-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                  {t('historyOverlay.detailTitle')}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedId('')
-                    setSelectedItem(null)
-                    setDetailError('')
-                  }}
-                  className="text-xs text-slate-400 transition hover:text-slate-200"
-                >
-                  {t('historyOverlay.close')}
-                </button>
-              </div>
-
-              {detailLoading ? (
-                <p className="text-sm text-slate-400">{t('historyOverlay.loadingDetail')}</p>
-              ) : detailError ? (
-                <p className="text-sm text-rose-300">{detailError}</p>
-              ) : selectedItem ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-white">{getHistoryTitle(selectedItem) || t('historyOverlay.untitled')}</p>
-                  {getHistoryCreatedAt(selectedItem) && (
-                    <p className="text-xs text-slate-500">{formatDate(getHistoryCreatedAt(selectedItem), lang)}</p>
-                  )}
-                  {getHistorySummary(selectedItem) && (
-                    <p className="line-clamp-4 text-sm text-slate-300">{getHistorySummary(selectedItem)}</p>
-                  )}
-                  {!getHistorySummary(selectedItem) && getHistorySourceText(selectedItem) && (
-                    <p className="line-clamp-4 text-sm text-slate-300">{getHistorySourceText(selectedItem)}</p>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          )}
-
           {isLoading ? (
             <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
               {t('historyOverlay.loading')}
@@ -455,11 +473,17 @@ function HistoryOverlay() {
                 <div
                   key={id}
                   className="group relative w-full rounded-lg border border-surface-border/20 bg-surface-base/40 transition hover:border-surface-border/40 hover:bg-surface-base/70"
+                  onClick={() => {
+                    if (!isEditing && !isEditingLoading && !isDeletingLoading) {
+                      handleSelectForSummary(item, index)
+                    }
+                  }}
                 >
                   <div className="p-3">
                     {isEditing ? (
                       <div className="space-y-2">
                         <input
+                          onClick={(event) => event.stopPropagation()}
                           value={editTitle}
                           onChange={(event) => setEditTitle(event.target.value)}
                           className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-100 outline-none"
@@ -468,7 +492,10 @@ function HistoryOverlay() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleSaveTitle(id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleSaveTitle(id)
+                            }}
                             disabled={isEditingLoading || !editTitle.trim()}
                             className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-surface-base transition disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -476,7 +503,10 @@ function HistoryOverlay() {
                           </button>
                           <button
                             type="button"
-                            onClick={handleCancelEdit}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleCancelEdit()
+                            }}
                             className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
                           >
                             {t('historyOverlay.cancel')}
@@ -489,24 +519,54 @@ function HistoryOverlay() {
                           {getHistoryTitle(item) || t('historyOverlay.untitled')}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">{formatDate(getHistoryCreatedAt(item), lang)}</p>
+                        {selectedId === id && (
+                          <div className="mt-3 rounded-lg border border-surface-border/40 bg-surface-base/50 px-3 py-2">
+                            <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                              {t('historyOverlay.detailTitle')}
+                            </p>
+                            {detailLoading ? (
+                              <p className="text-sm text-slate-400">{t('historyOverlay.loadingDetail')}</p>
+                            ) : detailError ? (
+                              <p className="text-sm text-rose-300">{detailError}</p>
+                            ) : selectedItem ? (
+                              <div className="space-y-2">
+                                {getHistorySummary(selectedItem) && (
+                                  <p className="line-clamp-5 text-sm text-slate-300">{getHistorySummary(selectedItem)}</p>
+                                )}
+                                {!getHistorySummary(selectedItem) && getHistorySourceText(selectedItem) && (
+                                  <p className="line-clamp-5 text-sm text-slate-300">{getHistorySourceText(selectedItem)}</p>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
                         <div className="mt-3 flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleViewDetail(item, index)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleViewDetail(item, index)
+                            }}
                             className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
                           >
                             {t('historyOverlay.view')}
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStartEdit(item, index)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleStartEdit(item, index)
+                            }}
                             className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
                           >
                             {t('historyOverlay.edit')}
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRemove(id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleRemove(id)
+                            }}
                             disabled={isDeletingLoading}
                             className="rounded-md px-2 py-1 text-xs text-rose-300 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                           >
