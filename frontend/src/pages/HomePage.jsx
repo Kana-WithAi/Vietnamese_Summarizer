@@ -52,17 +52,64 @@ function extractSummaryIdFromHistoryResponse(response) {
 
 function getSummarizeErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const rawText = String(error?.data || error?.message || '').toLowerCase()
+  const data = error?.data
+  const dataObject = data && typeof data === 'object' ? data : {}
+  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
+  const backendMessage = String(dataObject?.message || '')
+  const rawText = String(
+    dataObject?.message ||
+    dataObject?.error ||
+    (typeof data === 'string' ? data : '') ||
+    error?.message ||
+    '',
+  ).toLowerCase()
+
+  const looksLikeHtmlError = rawText.includes('<html') || rawText.includes('<!doctype')
+
+  const hasUsableBackendMessage =
+    backendMessage.trim() &&
+    backendMessage.length < 300 &&
+    !backendMessage.toLowerCase().includes('<html') &&
+    !backendMessage.toLowerCase().includes('<!doctype')
 
   const looksLikeLimitError =
+    code === 'TEXT_TOO_LONG' ||
+    code === 'CHAR_LIMIT_EXCEEDED' ||
+    code === 'WORD_LIMIT_EXCEEDED' ||
+    code === 'INPUT_LIMIT_EXCEEDED' ||
     status === 413 ||
     status === 422 ||
     rawText.includes('character limit') ||
+    rawText.includes('word limit') ||
     rawText.includes('too long') ||
     rawText.includes('limit')
 
+  const looksLikeEmptyTextError =
+    code === 'EMPTY_TEXT' ||
+    (status === 400 && (rawText.includes('empty') || rawText.includes('whitespace')))
+
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
+  }
+
+  if (looksLikeEmptyTextError) {
+    return lang === 'vi'
+      ? 'Vui lòng nhập nội dung trước khi tóm tắt.'
+      : 'Please enter text before summarizing.'
+  }
+
+  if (code === 'DAILY_WORD_LIMIT_EXCEEDED' || status === 429) {
+    if (hasUsableBackendMessage) return backendMessage
+    return lang === 'vi'
+      ? 'Bạn đã dùng hết giới hạn từ hôm nay. Giới hạn sẽ reset lúc 00:00 ngày mai.'
+      : 'You have reached your daily word limit. It will reset at 00:00 tomorrow.'
+  }
+
+  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
+    if (hasUsableBackendMessage) return backendMessage
+    return lang === 'vi'
+      ? 'Dịch vụ tóm tắt tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The summarization service is temporarily unavailable. Please try again in a few minutes.'
   }
 
   if (looksLikeLimitError) {
@@ -71,29 +118,95 @@ function getSummarizeErrorMessage(error, t, lang) {
       : 'Your text exceeds the limit for your current plan. Shorten it or upgrade your tier to continue.'
   }
 
+  if (hasUsableBackendMessage) {
+    return backendMessage
+  }
+
+  if (status === 400) {
+    return lang === 'vi'
+      ? 'Yêu cầu tóm tắt chưa hợp lệ. Vui lòng kiểm tra lại nội dung đầu vào.'
+      : 'The summarize request is invalid. Please check your input and try again.'
+  }
+
   if (status >= 500) {
+    if (!looksLikeHtmlError && rawText.trim()) {
+      return lang === 'vi'
+        ? 'Máy chủ tạm thời không xử lý được yêu cầu tóm tắt. Vui lòng thử lại sau.'
+        : 'The server cannot process this summarize request right now. Please try again later.'
+    }
     return t('homePage.errors.serverError')
   }
 
-  return t('homePage.errors.generic')
+  if (status > 0) {
+    return lang === 'vi'
+      ? `Không thể tóm tắt lúc này (mã ${status}). Vui lòng thử lại.`
+      : `Unable to summarize right now (status ${status}). Please try again.`
+  }
+
+  return lang === 'vi'
+    ? 'Không thể kết nối tới dịch vụ tóm tắt. Vui lòng kiểm tra mạng và thử lại.'
+    : 'Cannot reach the summarization service. Please check your connection and try again.'
 }
 
 function getFileUploadErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const data = error?.data || {}
-  const code = String(data?.code || data?.error_code || '').toUpperCase()
-  const rawText = String(data?.message || data?.error || error?.message || '').toLowerCase()
+  const data = error?.data
+  const dataObject = data && typeof data === 'object' ? data : {}
+  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
+  const backendMessage = String(dataObject?.message || '')
+  const rawText = String(
+    dataObject?.message ||
+    dataObject?.error ||
+    (typeof data === 'string' ? data : '') ||
+    error?.message ||
+    '',
+  ).toLowerCase()
+
+  const hasUsableBackendMessage =
+    backendMessage.trim() &&
+    backendMessage.length < 300 &&
+    !backendMessage.toLowerCase().includes('<html') &&
+    !backendMessage.toLowerCase().includes('<!doctype')
 
   if (status === 400 || code === 'UNSUPPORTED_FILE') {
     return lang === 'vi'
-      ? 'Định dạng tệp không được hỗ trợ. Vui lòng dùng .pdf hoặc .docx.'
-      : 'Unsupported file format. Please upload .pdf or .docx files.'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .docx hoặc .txt.'
+      : 'Unsupported file type. Please upload a .pdf, .docx, or .txt file.'
+  }
+
+  if (code === 'VALIDATION_ERROR') {
+    if (hasUsableBackendMessage) return backendMessage
+    return lang === 'vi'
+      ? 'Tệp tải lên chưa hợp lệ. Vui lòng kiểm tra lại tệp và thử lại.'
+      : 'The uploaded file is invalid. Please verify the file and try again.'
+  }
+
+  if (code === 'TEXT_EXTRACT_FAILED' || status === 422) {
+    if (hasUsableBackendMessage) return backendMessage
+    return lang === 'vi'
+      ? 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.'
+      : 'We could not extract readable text from this file. Please try another file or paste the text manually.'
+  }
+
+  const looksLikeFileTooLarge =
+    code === 'FILE_TOO_LARGE' ||
+    (status === 413 && !rawText.includes('text_too_long')) ||
+    rawText.includes('file too large') ||
+    rawText.includes('payload too large') ||
+    rawText.includes('request entity too large')
+
+  if (looksLikeFileTooLarge) {
+    return lang === 'vi'
+      ? 'Tệp quá lớn để xử lý. Vui lòng chọn tệp nhỏ hơn.'
+      : 'The file is too large to process. Please choose a smaller file.'
   }
 
   const looksLikeContentLimitError =
+    code === 'TEXT_TOO_LONG' ||
     code === 'CHAR_LIMIT_EXCEEDED' ||
     code === 'WORD_LIMIT_EXCEEDED' ||
     code === 'INPUT_LIMIT_EXCEEDED' ||
+    code === 'EMPTY_TEXT' ||
     rawText.includes('character limit') ||
     rawText.includes('word limit') ||
     rawText.includes('input limit') ||
@@ -102,25 +215,51 @@ function getFileUploadErrorMessage(error, t, lang) {
 
   if (looksLikeContentLimitError) {
     return lang === 'vi'
-      ? 'Nội dung vượt quá giới hạn ký tự/từ của gói hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói để tiếp tục.'
-      : 'The content exceeds your current plan word/character limit. Shorten the content or upgrade your plan to continue.'
+      ? 'Nội dung trong tệp vượt quá giới hạn của gói hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói để tiếp tục.'
+      : 'The file content exceeds the limit for your current plan. Shorten the content or upgrade your plan to continue.'
   }
 
-  if (status === 429 || code === 'DAILY_EXTRACT_LIMIT_EXCEEDED') {
+  if (status === 429 || code === 'DAILY_EXTRACT_LIMIT_EXCEEDED' || code === 'DAILY_WORD_LIMIT_EXCEEDED') {
+    if (hasUsableBackendMessage) return backendMessage
     return lang === 'vi'
-      ? 'Bạn đã hết lượt trích xuất tệp trong hôm nay. Vui lòng thử lại vào ngày mai.'
-      : 'You have reached your daily file extraction limit. Please try again tomorrow.'
+      ? 'Bạn đã hết lượt trích xuất trong ngày. Vui lòng thử lại vào ngày mai.'
+      : 'You have reached your daily extraction limit. Please try again tomorrow.'
+  }
+
+  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
+    if (hasUsableBackendMessage) return backendMessage
+    return lang === 'vi'
+      ? 'Dịch vụ tóm tắt tệp tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The file summarization service is temporarily unavailable. Please try again in a few minutes.'
   }
 
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
   }
 
+  if (hasUsableBackendMessage) {
+    return backendMessage
+  }
+
+  if (status === 400) {
+    return lang === 'vi'
+      ? 'Yêu cầu tóm tắt tệp chưa hợp lệ. Vui lòng kiểm tra lại tệp đầu vào.'
+      : 'The file summarize request is invalid. Please verify the uploaded file.'
+  }
+
   if (status >= 500) {
     return t('homePage.errors.serverError')
   }
 
-  return t('homePage.errors.generic')
+  if (status > 0) {
+    return lang === 'vi'
+      ? `Không thể xử lý tệp lúc này (mã ${status}). Vui lòng thử lại.`
+      : `Unable to process this file right now (status ${status}). Please try again.`
+  }
+
+  return lang === 'vi'
+    ? 'Không thể kết nối tới dịch vụ tóm tắt tệp. Vui lòng kiểm tra mạng và thử lại.'
+    : 'Cannot reach the file summarization service. Please check your connection and try again.'
 }
 
 function HomePage() {
@@ -256,8 +395,39 @@ function HomePage() {
     return fallbackName
   }
 
+  const extractSummaryTextFromPayload = (payload) => {
+    const data = payload?.data || payload || {}
+    const summaryText = String(
+      data?.summary ||
+      data?.summary_text ||
+      data?.summaryText ||
+      data?.output_text ||
+      data?.outputText ||
+      data?.content ||
+      '',
+    ).trim()
+    const extractedText = String(
+      data?.text ||
+      data?.input_text ||
+      data?.inputText ||
+      data?.extracted_text ||
+      data?.extractedText ||
+      '',
+    ).trim()
+    return { summaryText, extractedText }
+  }
+
   const handleSummarize = async () => {
     if (!inputText.trim() && !selectedUploadFile) return
+
+    if (mode === 'ocr' && !selectedUploadFile) {
+      setErrorMessage(
+        lang === 'vi'
+          ? 'Chế độ OCR chỉ hoạt động với file tải lên. Vui lòng chọn một tệp PDF, DOCX hoặc TXT.'
+          : 'OCR mode works with uploaded files only. Please choose a PDF, DOCX, or TXT file.',
+      )
+      return
+    }
 
     setIsLoading(true)
     setErrorMessage('')
@@ -267,9 +437,73 @@ function HomePage() {
       if (selectedUploadFile) {
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
+        formData.append('do_summarize', String(mode === 'summary'))
+        formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
 
         const response = await summarizeApi.file(formData)
-        const fallbackName = `${selectedUploadFile.name.replace(/\.(pdf|docx)$/i, '')}-summary.${selectedUploadFile.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx'}`
+        const contentType = String(response?.contentType || '').toLowerCase()
+
+        const shouldTryJsonPayload =
+          contentType.includes('application/json') ||
+          contentType.startsWith('text/') ||
+          !String(response?.contentDisposition || '').trim()
+
+        if (shouldTryJsonPayload) {
+          try {
+            const textPayload = await response.blob.text()
+            const parsedPayload = JSON.parse(textPayload)
+            const { summaryText, extractedText } = extractSummaryTextFromPayload(parsedPayload)
+
+            if (mode === 'extract' || mode === 'ocr') {
+              if (extractedText) {
+                setInputText(extractedText)
+                setSummary('')
+                setSelectedUploadFile(null)
+                setSuccessMessage(
+                  lang === 'vi'
+                    ? mode === 'ocr'
+                      ? 'OCR đã trích xuất văn bản từ tệp thành công.'
+                      : 'Tệp đã được trích xuất thành công.'
+                    : mode === 'ocr'
+                      ? 'OCR extracted the text from the file successfully.'
+                      : 'File text extracted successfully.',
+                )
+                window.setTimeout(() => setSuccessMessage(''), 3000)
+                return
+              }
+            } else if (summaryText) {
+              setInputText(extractedText || inputText)
+              setSummary(summaryText)
+              setSelectedUploadFile(null)
+              setSuccessMessage(
+                lang === 'vi'
+                  ? 'Tóm tắt tệp thành công.'
+                  : 'File summarized successfully.',
+              )
+              window.setTimeout(() => setSuccessMessage(''), 3000)
+              return
+            }
+          } catch {
+            // Not a JSON payload, continue with binary download flow.
+          }
+        }
+
+        if (mode === 'extract' || mode === 'ocr') {
+          setSummary('')
+          setSuccessMessage(
+            lang === 'vi'
+              ? mode === 'ocr'
+                ? 'OCR đã trích xuất văn bản từ tệp.'
+                : 'Đã trích xuất văn bản từ tệp.'
+              : mode === 'ocr'
+                ? 'OCR extracted the text from the file.'
+                : 'The file text has been extracted.',
+          )
+          window.setTimeout(() => setSuccessMessage(''), 3000)
+          return
+        }
+
+        const fallbackName = `${selectedUploadFile.name.replace(/\.(pdf|docx|txt)$/i, '')}-summary.${selectedUploadFile.name.toLowerCase().endsWith('.pdf') ? 'pdf' : selectedUploadFile.name.toLowerCase().endsWith('.txt') ? 'txt' : 'docx'}`
         const outputName = deriveDownloadNameFromDisposition(response?.contentDisposition, fallbackName)
 
         const url = URL.createObjectURL(response.blob)
@@ -502,10 +736,10 @@ function HomePage() {
     <div className="space-y-6 sm:space-y-8">
       {/* Hero */}
       <section className="text-center">
-        <h1 className="bg-gradient-to-r from-white via-slate-200 to-accent bg-clip-text text-3xl font-bold tracking-tight text-transparent sm:text-4xl">
+        <h1 className="text-3xl font-black tracking-tight text-[#050505] dark:text-white sm:text-4xl">
           {t('hero.title')}
         </h1>
-        <p className="mx-auto mt-3 max-w-xl text-sm text-slate-400 sm:text-base">
+        <p className="mx-auto mt-3 max-w-xl text-sm text-[#1f1f1f] dark:text-slate-400 sm:text-base">
           {t('hero.subtitle')}
         </p>
       </section>
@@ -515,36 +749,10 @@ function HomePage() {
         <div className="flex flex-col gap-4 sm:min-w-[280px]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              {t('controls.outputFormat')}
-            </span>
-            <div className="flex rounded-xl border border-surface-border bg-surface-base p-1">
-              {['paragraph', 'bulletPoints'].map((format) => {
-                const value = format === 'bulletPoints' ? 'bullet' : 'paragraph'
-                const isActive = outputFormat === value
-                return (
-                  <button
-                    key={format}
-                    type="button"
-                    onClick={() => setOutputFormat(value)}
-                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-                      isActive
-                        ? 'bg-accent text-surface-base shadow-md shadow-accent/25'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {t(`controls.${format}`)}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
               {t('controls.mode')}
             </span>
             <div className="flex rounded-xl border border-surface-border bg-surface-base p-1">
-              {['summary', 'extract'].map((option) => {
+              {['summary', 'extract', 'ocr'].map((option) => {
                 const isActive = mode === option
                 return (
                   <button
@@ -651,7 +859,7 @@ function HomePage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".docx,.pdf"
+                  accept=".pdf,.docx,.txt"
                   onChange={handleFileUpload}
                   className="hidden"
                 />

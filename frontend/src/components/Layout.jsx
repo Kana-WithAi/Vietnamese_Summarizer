@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { useTheme } from '../App'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
 import { authApi } from '../utils/api'
@@ -12,6 +13,7 @@ function Layout({ children }) {
   const navigate = useNavigate()
   const { t } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
+  const { theme, setTheme } = useTheme()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
@@ -122,6 +124,17 @@ function Layout({ children }) {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+              className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-surface-elevated hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
+              aria-label="Toggle theme"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+
             <LanguageSwitcher />
 
             {isAuthenticated && isAdmin && location.pathname === '/' && (
