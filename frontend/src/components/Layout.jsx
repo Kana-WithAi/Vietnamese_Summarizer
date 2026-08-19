@@ -128,11 +128,11 @@ function Layout({ children }) {
               type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
               className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-surface-elevated hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
-              aria-label="Toggle theme"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
+              title={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
             >
               <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
-              <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              <span className="hidden sm:inline">{theme === 'dark' ? t('nav.themeLight') : t('nav.themeDark')}</span>
             </button>
 
             <LanguageSwitcher />
@@ -172,7 +172,7 @@ function Layout({ children }) {
               onClick={handleAuthAction}
               className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover sm:px-4"
             >
-              {isAuthenticated ? 'Sign out' : t('nav.login')}
+              {isAuthenticated ? t('nav.logout') : t('nav.login')}
             </button>
           </div>
         </div>

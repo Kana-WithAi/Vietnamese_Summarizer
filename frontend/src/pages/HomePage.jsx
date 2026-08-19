@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { feedbacksApi, historyApi, summarizeApi } from '../utils/api'
+import { collectionsApi, feedbacksApi, historyApi, ocrApi, summarizeApi } from '../utils/api'
+import OcrOutputBox from '../components/OcrOutputBox'
+import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
 import { jsPDF } from 'jspdf'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
 
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
+const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
+const DEFAULT_SUMMARY_COLLECTION = 'Default'
 
 function extractSummaryId(response) {
   const data = response?.data || response || {}
@@ -170,8 +174,8 @@ function getFileUploadErrorMessage(error, t, lang) {
 
   if (status === 400 || code === 'UNSUPPORTED_FILE') {
     return lang === 'vi'
-      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .docx hoặc .txt.'
-      : 'Unsupported file type. Please upload a .pdf, .docx, or .txt file.'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .doc, .docx, .txt, .png, .jpg hoặc .jpeg.'
+      : 'Unsupported file type. Please upload a .pdf, .doc, .docx, .txt, .png, .jpg, or .jpeg file.'
   }
 
   if (code === 'VALIDATION_ERROR') {
@@ -278,6 +282,12 @@ function HomePage() {
   const [downloadFormat, setDownloadFormat] = useState('txt')
   const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false)
+  const [saveCollectionName, setSaveCollectionName] = useState(DEFAULT_SUMMARY_COLLECTION)
+  const [collectionOptions, setCollectionOptions] = useState([DEFAULT_SUMMARY_COLLECTION])
+  const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
+  const [newCollectionName, setNewCollectionName] = useState('')
+  const saveToggleRef = useRef(null)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
@@ -288,6 +298,8 @@ function HomePage() {
   const [feedbackSubmitError, setFeedbackSubmitError] = useState('')
   const [lastSummaryId, setLastSummaryId] = useState('')
   const [selectedUploadFile, setSelectedUploadFile] = useState(null)
+  const [ocrBlocks, setOcrBlocks] = useState([])
+  const [ocrData, setOcrData] = useState(null)
 
   useEffect(() => {
     let clearMessageTimer = null
@@ -357,14 +369,12 @@ function HomePage() {
     setErrorMessage('')
     setSuccessMessage('')
     setSelectedUploadFile(file)
-    setInputText(`[FILE] ${file.name}`)
+    setInputText('')
     setSummary('')
+    setOcrBlocks([])
+    setOcrData(null)
     setLastSummaryId('')
-    setSuccessMessage(
-      lang === 'vi'
-        ? 'Đã chọn tệp. Nhấn Tóm tắt để xử lý tệp.'
-        : 'File selected. Click Summarize to process the file.',
-    )
+    setSuccessMessage(t('ocr.fileSelected'))
     window.setTimeout(() => setSuccessMessage(''), 3000)
     event.target.value = ''
   }
@@ -372,10 +382,188 @@ function HomePage() {
   const handleClear = () => {
     setInputText('')
     setSummary('')
+    setOcrBlocks([])
+    setOcrData(null)
     setLastSummaryId('')
     setSelectedUploadFile(null)
     setErrorMessage('')
     setSuccessMessage('')
+  }
+
+  const getSavedCollections = () => {
+    try {
+      const raw = localStorage.getItem(SUMMARY_COLLECTION_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const persistSavedCollections = (collections) => {
+    localStorage.setItem(SUMMARY_COLLECTION_STORAGE_KEY, JSON.stringify(collections))
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadCollectionOptions = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        if (isMounted) {
+          setCollectionOptions([DEFAULT_SUMMARY_COLLECTION])
+        }
+        return
+      }
+
+      try {
+        const response = await collectionsApi.list({ page: 1, limit: 100 })
+        const payload = response?.data || response || {}
+        const rawCollections =
+          payload?.items ||
+          payload?.collections ||
+          payload?.results ||
+          (Array.isArray(payload) ? payload : [])
+
+        const nextOptions = [DEFAULT_SUMMARY_COLLECTION]
+        if (Array.isArray(rawCollections)) {
+          const names = rawCollections
+            .map((collection) => String(collection?.name || collection?.title || collection?.collection_name || '').trim())
+            .filter(Boolean)
+
+          names.forEach((name) => {
+            if (!nextOptions.includes(name)) {
+              nextOptions.push(name)
+            }
+          })
+        }
+
+        if (isMounted) {
+          setCollectionOptions(nextOptions)
+          setSaveCollectionName((current) => (nextOptions.includes(current) ? current : DEFAULT_SUMMARY_COLLECTION))
+        }
+      } catch {
+        if (isMounted) {
+          setCollectionOptions([DEFAULT_SUMMARY_COLLECTION, ...Object.keys(getSavedCollections()).filter(Boolean)])
+        }
+      }
+    }
+
+    loadCollectionOptions()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const handleSaveSummaryToCollection = async (targetCollectionName = saveCollectionName) => {
+    if (!summary.trim()) return
+
+    const collectionName = (targetCollectionName || '').trim() || DEFAULT_SUMMARY_COLLECTION
+    const collectionMap = getSavedCollections()
+    const currentItems = Array.isArray(collectionMap[collectionName]) ? collectionMap[collectionName] : []
+    const nextItem = {
+      id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      title: downloadName.trim() || `${collectionName}-summary`,
+      summary,
+      source_text: inputText || '',
+      collection: collectionName,
+      created_at: new Date().toISOString(),
+      is_bookmarked: false,
+    }
+
+    try {
+      const token = localStorage.getItem('accessToken')
+      if (token) {
+        const response = await collectionsApi.list({ page: 1, limit: 100 })
+        const payload = response?.data || response || {}
+        const rawCollections = payload?.items || payload?.collections || payload?.results || (Array.isArray(payload) ? payload : [])
+
+        const existingCollection = Array.isArray(rawCollections)
+          ? rawCollections.find(
+              (collection) =>
+                String(collection?.name || collection?.title || collection?.collection_name || '').trim().toLowerCase() ===
+                collectionName.toLowerCase(),
+            )
+          : null
+
+        if (!existingCollection && collectionName !== DEFAULT_SUMMARY_COLLECTION) {
+          await collectionsApi.create({
+            name: collectionName,
+            title: collectionName,
+          })
+        }
+      }
+    } catch {
+      // Fall back to local persistence if the API is unavailable or the user is not yet synced.
+    }
+
+    collectionMap[collectionName] = [nextItem, ...currentItems].slice(0, 50)
+    persistSavedCollections(collectionMap)
+    setCollectionOptions((current) => (current.includes(collectionName) ? current : [...current, collectionName]))
+    setSaveCollectionName(collectionName)
+    setSaveMenuOpen(false)
+    setCollectionSearchQuery('')
+    setNewCollectionName('')
+    setSuccessMessage(
+      lang === 'vi'
+        ? `Đã lưu tóm tắt vào bộ sưu tập "${collectionName}".`
+        : `Saved the summary into the "${collectionName}" collection.`,
+    )
+    window.setTimeout(() => setSuccessMessage(''), 3000)
+  }
+
+  const filteredCollectionOptions = collectionOptions.filter((name) => {
+    const target = String(name || '').toLowerCase()
+    const query = collectionSearchQuery.trim().toLowerCase()
+    return !query || target.includes(query)
+  })
+
+  const handleOpenSaveMenu = () => {
+    if (saveMenuOpen) {
+      setSaveMenuOpen(false)
+      return
+    }
+
+    const button = saveToggleRef.current?.getBoundingClientRect()
+    if (button) {
+      setMenuPosition({
+        top: button.bottom + window.scrollY + 8,
+        left: Math.max(12, button.right + window.scrollX - 220),
+      })
+    }
+    setSaveMenuOpen(true)
+  }
+
+  const handleCreateCollectionQuick = async () => {
+    const nextName = newCollectionName.trim()
+    if (!nextName) return
+
+    const normalized = nextName.replace(/\s+/g, ' ').trim()
+    const exists = collectionOptions.some((name) => name.toLowerCase() === normalized.toLowerCase())
+    if (exists) {
+      setSaveCollectionName(normalized)
+      setNewCollectionName('')
+      setCollectionSearchQuery('')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('accessToken')
+      if (token) {
+        await collectionsApi.create({ name: normalized, title: normalized })
+      }
+    } catch {
+      // fall back to local-only storage below
+    }
+
+    const nextCollectionMap = getSavedCollections()
+    nextCollectionMap[normalized] = nextCollectionMap[normalized] || []
+    persistSavedCollections(nextCollectionMap)
+    setCollectionOptions((current) => (current.includes(normalized) ? current : [...current, normalized]))
+    setSaveCollectionName(normalized)
+    setNewCollectionName('')
+    setCollectionSearchQuery('')
   }
 
   const deriveDownloadNameFromDisposition = (contentDisposition, fallbackName = 'summary.docx') => {
@@ -417,15 +605,128 @@ function HomePage() {
     return { summaryText, extractedText }
   }
 
+  const extractOcrTextFromPayload = (payload) => {
+    const extractTextCandidate = (value, seen = new WeakSet()) => {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        return trimmed
+      }
+
+      if (Array.isArray(value)) {
+        const collected = []
+        for (const item of value) {
+          const nested = extractTextCandidate(item, seen)
+          if (nested) collected.push(nested)
+        }
+        return collected.join('\n').trim()
+      }
+
+      if (value && typeof value === 'object') {
+        if (seen.has(value)) return ''
+        seen.add(value)
+
+        const entries = Object.entries(value)
+        const priorityKeys = ['text', 'content', 'output_text', 'outputText', 'extracted_text', 'extractedText', 'ocr_text', 'ocrText', 'raw_text', 'rawText']
+
+        for (const key of priorityKeys) {
+          const directValue = value[key]
+          if (directValue !== undefined && directValue !== null) {
+            const result = extractTextCandidate(directValue, seen)
+            if (result) return result
+          }
+        }
+
+        for (const [key, nestedValue] of entries) {
+          const normalizedKey = String(key).toLowerCase()
+          if (
+            normalizedKey.includes('text') ||
+            normalizedKey.includes('content') ||
+            normalizedKey.includes('ocr') ||
+            normalizedKey.includes('result') ||
+            normalizedKey.includes('data') ||
+            normalizedKey.includes('page') ||
+            normalizedKey.includes('block') ||
+            normalizedKey.includes('line') ||
+            normalizedKey.includes('paragraph')
+          ) {
+            const result = extractTextCandidate(nestedValue, seen)
+            if (result) return result
+          }
+        }
+      }
+
+      return ''
+    }
+
+    if (payload === null || payload === undefined) return ''
+    return extractTextCandidate(payload).trim()
+  }
+
+  const extractOcrBlocksFromPayload = (payload) => {
+    const visit = (value, seen = new WeakSet(), depth = 0) => {
+      if (!value) return []
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        return trimmed ? [trimmed] : []
+      }
+
+      if (Array.isArray(value)) {
+        const items = []
+        for (const item of value) {
+          items.push(...visit(item, seen, depth + 1))
+        }
+        return items
+      }
+
+      if (typeof value !== 'object') return []
+      if (seen.has(value)) return []
+      seen.add(value)
+
+      const blocks = []
+      const objectEntries = Object.entries(value)
+
+      for (const [key, nestedValue] of objectEntries) {
+        const normalizedKey = String(key).toLowerCase()
+
+        if (
+          ['text', 'content', 'value', 'output_text', 'outputText', 'extracted_text', 'extractedText', 'ocr_text', 'ocrText', 'raw_text', 'rawText'].includes(normalizedKey)
+        ) {
+          const text = typeof nestedValue === 'string' ? nestedValue.trim() : ''
+          if (text) blocks.push(text)
+        }
+
+        if (
+          normalizedKey === 'blocks' ||
+          normalizedKey === 'pages' ||
+          normalizedKey === 'lines' ||
+          normalizedKey === 'paragraphs' ||
+          normalizedKey === 'items' ||
+          normalizedKey === 'results' ||
+          normalizedKey === 'data'
+        ) {
+          blocks.push(...visit(nestedValue, seen, depth + 1))
+        }
+      }
+
+      if (!blocks.length) {
+        for (const nestedValue of Object.values(value)) {
+          blocks.push(...visit(nestedValue, seen, depth + 1))
+        }
+      }
+
+      return blocks.filter((text) => typeof text === 'string' && text.trim()).map((text) => text.trim())
+    }
+
+    const blocks = visit(payload)
+    return blocks.filter((text, index) => text && blocks.indexOf(text) === index)
+  }
+
   const handleSummarize = async () => {
     if (!inputText.trim() && !selectedUploadFile) return
 
     if (mode === 'ocr' && !selectedUploadFile) {
-      setErrorMessage(
-        lang === 'vi'
-          ? 'Chế độ OCR chỉ hoạt động với file tải lên. Vui lòng chọn một tệp PDF, DOCX hoặc TXT.'
-          : 'OCR mode works with uploaded files only. Please choose a PDF, DOCX, or TXT file.',
-      )
+      setErrorMessage(t('ocr.requiresUpload'))
       return
     }
 
@@ -435,6 +736,33 @@ function HomePage() {
 
     try {
       if (selectedUploadFile) {
+        if (mode === 'ocr') {
+          const dimensions = await getFileDimensions(selectedUploadFile)
+          const response = await ocrApi.process(selectedUploadFile, {
+            extract_layout: true,
+            auth: false,
+          })
+
+          const payload = response?.data || response || {}
+          const extractedText = extractOcrTextFromPayload(payload)
+          const ocrBlocks = extractOcrBlocksFromPayload(payload)
+
+          setOcrData({ payload, dimensions })
+
+          if (extractedText || ocrBlocks.length) {
+            setSummary(ocrBlocks.join('\n\n') || extractedText)
+            setOcrBlocks(ocrBlocks.length ? ocrBlocks : [extractedText])
+            setSuccessMessage(t('ocr.success'))
+            window.setTimeout(() => setSuccessMessage(''), 3000)
+            return
+          }
+
+          setSummary('')
+          setOcrData({ payload, dimensions })
+          setErrorMessage(t('ocr.noText'))
+          return
+        }
+
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
@@ -454,27 +782,19 @@ function HomePage() {
             const parsedPayload = JSON.parse(textPayload)
             const { summaryText, extractedText } = extractSummaryTextFromPayload(parsedPayload)
 
-            if (mode === 'extract' || mode === 'ocr') {
+            if (mode === 'extract') {
               if (extractedText) {
-                setInputText(extractedText)
                 setSummary('')
-                setSelectedUploadFile(null)
                 setSuccessMessage(
                   lang === 'vi'
-                    ? mode === 'ocr'
-                      ? 'OCR đã trích xuất văn bản từ tệp thành công.'
-                      : 'Tệp đã được trích xuất thành công.'
-                    : mode === 'ocr'
-                      ? 'OCR extracted the text from the file successfully.'
-                      : 'File text extracted successfully.',
+                    ? 'Tệp đã được trích xuất thành công.'
+                    : 'File text extracted successfully.',
                 )
                 window.setTimeout(() => setSuccessMessage(''), 3000)
                 return
               }
             } else if (summaryText) {
-              setInputText(extractedText || inputText)
               setSummary(summaryText)
-              setSelectedUploadFile(null)
               setSuccessMessage(
                 lang === 'vi'
                   ? 'Tóm tắt tệp thành công.'
@@ -488,16 +808,12 @@ function HomePage() {
           }
         }
 
-        if (mode === 'extract' || mode === 'ocr') {
+        if (mode === 'extract') {
           setSummary('')
           setSuccessMessage(
             lang === 'vi'
-              ? mode === 'ocr'
-                ? 'OCR đã trích xuất văn bản từ tệp.'
-                : 'Đã trích xuất văn bản từ tệp.'
-              : mode === 'ocr'
-                ? 'OCR extracted the text from the file.'
-                : 'The file text has been extracted.',
+              ? 'Đã trích xuất văn bản từ tệp.'
+              : 'The file text has been extracted.',
           )
           window.setTimeout(() => setSuccessMessage(''), 3000)
           return
@@ -814,6 +1130,20 @@ function HomePage() {
             </button>
           </div>
 
+          {selectedUploadFile && (
+            <div className="border-b border-surface-border bg-surface-base/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-2xl border border-surface-border bg-surface-raised p-3 shadow-lg shadow-black/10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-xs font-bold uppercase tracking-[0.2em] text-slate-200">
+                  {String(selectedUploadFile.name || 'FILE').split('.').pop()?.slice(0, 3)?.toUpperCase() || 'FILE'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{t('input.fileLabel')}</div>
+                  <div className="truncate text-sm font-medium text-slate-100">{selectedUploadFile.name}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="relative flex-1">
             <textarea
               value={inputText}
@@ -859,7 +1189,7 @@ function HomePage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.docx,.txt"
+                  accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -885,8 +1215,10 @@ function HomePage() {
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300">
                   {errorMessage}
                 </div>
+              ) : mode === 'ocr' ? (
+                <OcrOutputBox ocrData={ocrData} isLoading={isLoading} t={t} />
               ) : (
-                summary || t('output.placeholder')
+                <div className="whitespace-pre-wrap">{summary || t('output.placeholder')}</div>
               )}
             </div>
           </div>
@@ -985,9 +1317,8 @@ function HomePage() {
                     className="rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl backdrop-blur-md"
                   >
                     <div className="space-y-3">
-                      {/* File Name Input */}
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           {t('output.fileName')}
                         </label>
                         <input
@@ -999,9 +1330,8 @@ function HomePage() {
                         />
                       </div>
 
-                      {/* Format Options */}
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           {t('output.format')}
                         </label>
                         <div className="grid grid-cols-2 gap-1.5">
@@ -1022,16 +1352,103 @@ function HomePage() {
                         </div>
                       </div>
 
-                      {/* Download Action */}
                       <button
                         type="button"
                         onClick={() => {
                           handleDownload(downloadFormat, downloadName)
                           setDownloadMenuOpen(false)
                         }}
-                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 hover:bg-accent-hover transition"
+                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 transition hover:bg-accent-hover"
                       >
                         {t('output.download')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="ml-2" ref={saveToggleRef}>
+                <button
+                  type="button"
+                  onClick={handleOpenSaveMenu}
+                  className="rounded-md bg-surface-base px-3 py-2 text-sm text-slate-300 transition hover:bg-surface-elevated"
+                >
+                  {t('output.save')}
+                </button>
+
+                {saveMenuOpen && (
+                  <div
+                    className="fixed z-[9999] w-72 rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl backdrop-blur-md"
+                    style={{
+                      top: `${menuPosition.top}px`,
+                      left: `${menuPosition.left}px`,
+                    }}
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {t('output.chooseCollection')}
+                        </label>
+                        <input
+                          type="text"
+                          value={collectionSearchQuery}
+                          onChange={(event) => setCollectionSearchQuery(event.target.value)}
+                          placeholder={t('output.searchCollection')}
+                          className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="max-h-36 space-y-2 overflow-y-auto rounded-lg border border-surface-border bg-surface-base/50 p-2">
+                        {filteredCollectionOptions.length === 0 ? (
+                          <p className="text-[11px] text-slate-400">{t('output.noCollections')}</p>
+                        ) : (
+                          filteredCollectionOptions.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => setSaveCollectionName(name)}
+                              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
+                                saveCollectionName === name
+                                  ? 'bg-accent/15 text-white ring-1 ring-accent/40'
+                                  : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                              }`}
+                            >
+                              <span>{name}</span>
+                              {saveCollectionName === name && <span className="text-[10px]">✓</span>}
+                            </button>
+                          ))
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {t('output.newCollection')}
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newCollectionName}
+                            onChange={(event) => setNewCollectionName(event.target.value)}
+                            placeholder={t('output.newCollectionPlaceholder')}
+                            className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCreateCollectionQuick}
+                            className="rounded-lg bg-surface-elevated px-2 py-1.5 text-[10px] font-semibold text-slate-200 transition hover:bg-surface-base"
+                          >
+                            {t('output.create')}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSummaryToCollection(saveCollectionName)}
+                        disabled={!summary.trim()}
+                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {t('output.saveToCollection')}
                       </button>
                     </div>
                   </div>
