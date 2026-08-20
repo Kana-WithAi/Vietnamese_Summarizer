@@ -326,7 +326,7 @@ function HomePage() {
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [feedbackRating, setFeedbackRating] = useState(0)
   const [feedbackCriteria, setFeedbackCriteria] = useState([])
-  const [feedbackSelectedTags, setFeedbackSelectedTags] = useState([])
+  const [feedbackSelectedTag, setFeedbackSelectedTag] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
   const [feedbackSubmitError, setFeedbackSubmitError] = useState('')
@@ -1002,7 +1002,7 @@ function HomePage() {
 
   const handleFeedbackRatingSelection = async (ratingValue) => {
     setFeedbackRating(ratingValue)
-    setFeedbackSelectedTags([])
+    setFeedbackSelectedTag('')
     setFeedbackText('')
     setFeedbackSubmitError('')
     setFeedbackWizardStep('criteria')
@@ -1013,7 +1013,7 @@ function HomePage() {
     setFeedbackTargetType(targetType)
     setFeedbackModalOpen(true)
     setFeedbackText('')
-    setFeedbackSelectedTags([])
+    setFeedbackSelectedTag('')
     setFeedbackSubmitError('')
     setFeedbackWizardStep('stars')
     setFeedbackRating(0)
@@ -1039,30 +1039,32 @@ function HomePage() {
     setFeedbackStarMenuOpen(false)
     setFeedbackWizardStep('stars')
     setFeedbackRating(0)
-    setFeedbackSelectedTags([])
+    setFeedbackSelectedTag('')
     setFeedbackText('')
     setFeedbackSubmitError('')
     setFeedbackCriteria([])
   }
 
   const toggleFeedbackTag = (tag) => {
-    setFeedbackSelectedTags((current) =>
-      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag],
-    )
+    setFeedbackSelectedTag((current) => (current === tag ? '' : tag))
   }
 
   const handleSendFeedback = async () => {
-    const trimmedComment = feedbackText.trim()
+    const trimmedComment = feedbackText.trim().slice(0, 1000)
 
     if (feedbackRating < 1 || feedbackRating > 5) {
-      setFeedbackSubmitError(t('feedback.submitFailed'))
-      return
-    }
-    if (feedbackRating <= 3 && feedbackSelectedTags.length === 0 && !trimmedComment) {
       setFeedbackSubmitError(
         lang === 'vi'
-          ? 'Vui lòng chọn ít nhất một tiêu chí hoặc viết nhận xét.'
-          : 'Please select at least one issue or add a comment.',
+          ? 'Số sao đánh giá phải là số nguyên từ 1 đến 5.'
+          : t('feedback.submitFailed'),
+      )
+      return
+    }
+    if (feedbackRating <= 3 && !feedbackSelectedTag && !trimmedComment) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Vui lòng chọn một lý do đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.'
+          : 'Please select a reason tag or provide a comment for low ratings.',
       )
       return
     }
@@ -1071,15 +1073,23 @@ function HomePage() {
     setFeedbackSubmitError('')
 
     try {
+      const validTargetType = ['summary', 'ocr', 'system'].includes(feedbackTargetType)
+        ? feedbackTargetType
+        : 'summary'
+
       const payload = {
-        target_type: feedbackTargetType,
-        rating: feedbackRating,
-        tags: feedbackSelectedTags,
+        target_type: validTargetType,
+        rating: Number(feedbackRating),
+        tag: feedbackSelectedTag || '',
         comment: trimmedComment,
       }
 
-      if (summary && (lastSummaryId || currentSummaryId)) {
-        payload.summary_id = lastSummaryId || currentSummaryId
+      if (validTargetType === 'summary') {
+        const rawSummaryId = String(lastSummaryId || currentSummaryId || '').trim()
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawSummaryId)
+        if (isUuid) {
+          payload.summary_id = rawSummaryId
+        }
       }
 
       await feedbacksApi.create(payload)
@@ -1088,10 +1098,18 @@ function HomePage() {
       setSuccessMessage(t('feedback.submitted'))
       window.setTimeout(() => setSuccessMessage(''), 3000)
     } catch (error) {
+      console.error('Feedback submit error:', error, error?.data)
+      const serverMsg =
+        error?.data?.message ||
+        error?.data?.error ||
+        error?.data?.detail ||
+        (typeof error?.data === 'string' && error.data.length < 300 ? error.data : '') ||
+        error?.message
+
       if (error?.status === 401 || error?.status === 403) {
         setFeedbackSubmitError(t('feedback.authRequired'))
       } else {
-        setFeedbackSubmitError(t('feedback.submitFailed'))
+        setFeedbackSubmitError(serverMsg || t('feedback.submitFailed'))
       }
     } finally {
       setFeedbackSubmitting(false)
@@ -1918,7 +1936,7 @@ function HomePage() {
                       <div className="flex flex-wrap gap-2">
                         {feedbackCriteria.length > 0 ? (
                           feedbackCriteria.map((criteria) => {
-                            const isSelected = feedbackSelectedTags.includes(criteria.code)
+                            const isSelected = feedbackSelectedTag === criteria.code
                             const translatedReason = t(`feedback.reasons.${criteria.code}`)
                             const displayLabel =
                               translatedReason && translatedReason !== `feedback.reasons.${criteria.code}`
@@ -1929,10 +1947,10 @@ function HomePage() {
                                 key={criteria.code}
                                 type="button"
                                 onClick={() => toggleFeedbackTag(criteria.code)}
-                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
                                   isSelected
-                                    ? 'border-accent bg-accent/15 text-white'
-                                    : 'border-surface-border bg-surface-base text-slate-300 hover:border-accent/50 '
+                                    ? 'border-accent bg-accent/20 text-white ring-1 ring-accent font-semibold'
+                                    : 'border-surface-border bg-surface-base text-slate-300 hover:border-accent/50'
                                 }`}
                               >
                                 {displayLabel}
@@ -1978,7 +1996,7 @@ function HomePage() {
                     type="button"
                     onClick={() => {
                       setFeedbackWizardStep('stars')
-                      setFeedbackSelectedTags([])
+                      setFeedbackSelectedTag('')
                       setFeedbackText('')
                       setFeedbackSubmitError('')
                     }}
@@ -2001,7 +2019,7 @@ function HomePage() {
               <button
                 type="button"
                 onClick={handleSendFeedback}
-                disabled={!summary || feedbackSubmitting || feedbackWizardStep === 'stars'}
+                disabled={feedbackSubmitting || feedbackWizardStep === 'stars' || feedbackRating < 1}
                 className="inline-flex items-center justify-center rounded-3xl bg-accent px-5 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:opacity-40"
               >
                 {feedbackSubmitting ? t('feedback.sending') : t('feedback.send')}

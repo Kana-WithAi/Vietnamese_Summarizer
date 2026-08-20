@@ -253,6 +253,7 @@ function getFeedbackComment(feedback, lang) {
     feedback?.reason_codes ||
     feedback?.reasonCodes ||
     feedback?.tags ||
+    (feedback?.tag ? [feedback.tag] : []) ||
     []
 
   if (Array.isArray(reasonList) && reasonList.length > 0) {

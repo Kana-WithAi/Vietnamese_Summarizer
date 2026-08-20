@@ -134,7 +134,13 @@ function FeedbackPublicPage() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filteredItems.map((item, index) => {
             const rating = Number(item?.rating ?? item?.score ?? 0)
-            const tags = Array.isArray(item?.tags) ? item.tags : Array.isArray(item?.criteria) ? item.criteria : []
+            const tags = Array.isArray(item?.tags)
+              ? item.tags
+              : item?.tag
+                ? [item.tag]
+                : Array.isArray(item?.criteria)
+                  ? item.criteria
+                  : []
             const comment = item?.comment || item?.feedback || item?.message || ''
 
             return (
