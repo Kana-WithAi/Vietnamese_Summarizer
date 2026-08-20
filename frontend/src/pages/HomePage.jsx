@@ -925,16 +925,21 @@ function HomePage() {
       const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
       const textPayload = {
         text: inputText,
-        mode,
-        output_format: outputFormat,
-        summary_length_ratio: selectedSummaryLength,
+        do_summarize: mode === 'summary',
+        length_type: selectedSummaryLength,
       }
       if (selectedCollectionId) {
         textPayload.collection_id = selectedCollectionId
       }
 
       const response = await summarizeApi.text(textPayload)
-      const nextSummary = response?.data?.summary || ''
+      const nextSummary =
+        response?.data?.summary ||
+        response?.data?.text ||
+        response?.data?.extracted_text ||
+        response?.summary ||
+        response?.text ||
+        ''
       const directSummaryId = extractSummaryId(response)
       setCurrentSummaryId(response?.data?.id || response?.id || directSummaryId || currentSummaryId)
       if (directSummaryId) {
