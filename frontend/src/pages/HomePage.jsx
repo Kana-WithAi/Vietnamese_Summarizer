@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { collectionsApi, feedbacksApi, historyApi, ocrApi, summarizeApi } from '../utils/api'
+import { collectionsApi, feedbacksApi, historyApi, ocrApi, subscriptionsApi, summarizeApi } from '../utils/api'
 import OcrOutputBox from '../components/OcrOutputBox'
 import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
@@ -10,7 +10,27 @@ import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
 const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
+const SUMMARY_COLLECTION_COLOR_STORAGE_KEY = 'vietnamese-summarizer-collection-colors'
 const DEFAULT_SUMMARY_COLLECTION = 'Default'
+const DEFAULT_COLLECTION_COLOR = '#7c3aed'
+const COLLECTION_SWATCHES = ['#7c3aed', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#f472b6', '#a78bfa', '#f97316']
+
+function getCollectionColor(name, fallback = DEFAULT_COLLECTION_COLOR) {
+  const raw = localStorage.getItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY)
+  if (!raw) return fallback
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      const color = String(parsed[name] || '').trim()
+      if (color) return color
+    }
+  } catch {
+    // Ignore invalid local history metadata and fall back to default color.
+  }
+
+  return fallback
+}
 
 function extractSummaryId(response) {
   const data = response?.data || response || {}
@@ -283,10 +303,18 @@ function HomePage() {
   const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [saveMenuOpen, setSaveMenuOpen] = useState(false)
-  const [saveCollectionName, setSaveCollectionName] = useState(DEFAULT_SUMMARY_COLLECTION)
+  const [saveCollectionName, setSaveCollectionName] = useState('')
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
+  const [currentSummaryId, setCurrentSummaryId] = useState('')
   const [collectionOptions, setCollectionOptions] = useState([DEFAULT_SUMMARY_COLLECTION])
   const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
   const [newCollectionName, setNewCollectionName] = useState('')
+  const [collectionValidationError, setCollectionValidationError] = useState('')
+  const [editingCollectionName, setEditingCollectionName] = useState('')
+  const [editingCollectionColor, setEditingCollectionColor] = useState(DEFAULT_COLLECTION_COLOR)
+  const [editingCollectionOriginal, setEditingCollectionOriginal] = useState('')
+  const [userTier, setUserTier] = useState('free')
+  const [collectionMetadata, setCollectionMetadata] = useState({})
   const saveToggleRef = useRef(null)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
@@ -405,6 +433,69 @@ function HomePage() {
     localStorage.setItem(SUMMARY_COLLECTION_STORAGE_KEY, JSON.stringify(collections))
   }
 
+  const getSavedCollectionColors = () => {
+    try {
+      const raw = localStorage.getItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const persistSavedCollectionColors = (colors) => {
+    localStorage.setItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY, JSON.stringify(colors))
+  }
+
+  const isProTierUser = (tierValue = userTier) => {
+    const normalized = String(tierValue || '').trim().toLowerCase()
+    if (!normalized) return false
+    return ['pro', 'premium', 'max', 'business', 'elite', 'vip', 'team'].some((token) => normalized.includes(token))
+  }
+
+  const canSaveCurrentOutput = () => {
+    const textFromSummary = String(summary || '').trim()
+    if (textFromSummary) return true
+
+    const textFromOcr = String(
+      ocrBlocks.join('\n\n') || extractOcrTextFromPayload(ocrData?.payload || ocrData) || '',
+    ).trim()
+
+    return Boolean(textFromOcr)
+  }
+
+  useEffect(() => {
+    const loadUserTier = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        setUserTier('free')
+        return
+      }
+
+      try {
+        const response = await subscriptionsApi.me().catch(() => null)
+        const data = response?.data || response || {}
+
+        const tier =
+          data?.tier ||
+          data?.tier_name ||
+          data?.plan?.tier ||
+          data?.plan?.name ||
+          data?.subscription?.tier ||
+          data?.subscription?.plan?.tier ||
+          data?.subscription?.plan?.name ||
+          'free'
+
+        setUserTier(String(tier).toLowerCase())
+      } catch {
+        setUserTier('free')
+      }
+    }
+
+    loadUserTier()
+  }, [])
+
   useEffect(() => {
     let isMounted = true
 
@@ -413,6 +504,7 @@ function HomePage() {
       if (!token) {
         if (isMounted) {
           setCollectionOptions([DEFAULT_SUMMARY_COLLECTION])
+          setCollectionMetadata({})
         }
         return
       }
@@ -427,25 +519,42 @@ function HomePage() {
           (Array.isArray(payload) ? payload : [])
 
         const nextOptions = [DEFAULT_SUMMARY_COLLECTION]
-        if (Array.isArray(rawCollections)) {
-          const names = rawCollections
-            .map((collection) => String(collection?.name || collection?.title || collection?.collection_name || '').trim())
-            .filter(Boolean)
+        const nextMetadata = {}
 
-          names.forEach((name) => {
-            if (!nextOptions.includes(name)) {
-              nextOptions.push(name)
+        if (Array.isArray(rawCollections)) {
+          rawCollections.forEach((collection) => {
+            const name = String(collection?.name || collection?.title || collection?.collection_name || '').trim()
+            if (!name) return
+            if (!nextOptions.includes(name)) nextOptions.push(name)
+            nextMetadata[name] = {
+              id: collection?.id || collection?._id || collection?.collection_id || collection?.collectionId || null,
+              color: getCollectionColor(name, DEFAULT_COLLECTION_COLOR),
             }
           })
         }
 
+        const localColors = getSavedCollectionColors()
+        Object.entries(localColors).forEach(([name, color]) => {
+          if (name && !nextOptions.includes(name)) nextOptions.push(name)
+        })
+
         if (isMounted) {
           setCollectionOptions(nextOptions)
-          setSaveCollectionName((current) => (nextOptions.includes(current) ? current : DEFAULT_SUMMARY_COLLECTION))
+          setCollectionMetadata(nextMetadata)
+          const nextSelectedName = (saveCollectionName || DEFAULT_SUMMARY_COLLECTION)
+          const nextCollectionId = nextSelectedName && nextSelectedName !== DEFAULT_SUMMARY_COLLECTION
+            ? nextMetadata[nextSelectedName]?.id || ''
+            : ''
+          setSaveCollectionName((current) => (current && nextOptions.includes(current) ? current : ''))
+          setSelectedCollectionId(nextCollectionId)
         }
       } catch {
         if (isMounted) {
-          setCollectionOptions([DEFAULT_SUMMARY_COLLECTION, ...Object.keys(getSavedCollections()).filter(Boolean)])
+          const localCollections = Object.keys(getSavedCollections()).filter(Boolean)
+          const nextOptions = [DEFAULT_SUMMARY_COLLECTION, ...localCollections]
+          setCollectionOptions(nextOptions)
+          setCollectionMetadata({})
+          setSaveCollectionName((current) => (current && nextOptions.includes(current) ? current : ''))
         }
       }
     }
@@ -456,61 +565,117 @@ function HomePage() {
     }
   }, [])
 
-  const handleSaveSummaryToCollection = async (targetCollectionName = saveCollectionName) => {
-    if (!summary.trim()) return
+  const handleSaveSummaryToCollection = async (targetCollectionId = selectedCollectionId) => {
+    const summaryIdToUse = currentSummaryId || lastSummaryId
 
-    const collectionName = (targetCollectionName || '').trim() || DEFAULT_SUMMARY_COLLECTION
-    const collectionMap = getSavedCollections()
-    const currentItems = Array.isArray(collectionMap[collectionName]) ? collectionMap[collectionName] : []
-    const nextItem = {
-      id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      title: downloadName.trim() || `${collectionName}-summary`,
-      summary,
-      source_text: inputText || '',
-      collection: collectionName,
-      created_at: new Date().toISOString(),
-      is_bookmarked: false,
+    if (!summaryIdToUse) {
+      setErrorMessage(lang === 'vi' ? 'Không tìm thấy bài tóm tắt để lưu.' : 'No summary found to save.')
+      return
+    }
+
+    if (!targetCollectionId) {
+      setErrorMessage(lang === 'vi' ? 'Vui lòng chọn Collection hợp lệ.' : 'Please select a valid collection.')
+      return
     }
 
     try {
-      const token = localStorage.getItem('accessToken')
-      if (token) {
-        const response = await collectionsApi.list({ page: 1, limit: 100 })
-        const payload = response?.data || response || {}
-        const rawCollections = payload?.items || payload?.collections || payload?.results || (Array.isArray(payload) ? payload : [])
+      await historyApi.update(summaryIdToUse, {
+        collection_id: targetCollectionId,
+      })
 
-        const existingCollection = Array.isArray(rawCollections)
-          ? rawCollections.find(
-              (collection) =>
-                String(collection?.name || collection?.title || collection?.collection_name || '').trim().toLowerCase() ===
-                collectionName.toLowerCase(),
-            )
-          : null
+      setSuccessMessage(
+        lang === 'vi'
+          ? 'Đã lưu tóm tắt vào bộ sưu tập.'
+          : 'Saved the summary to the selected collection.',
+      )
+      setSaveMenuOpen(false)
+      window.dispatchEvent(new CustomEvent('history:updated'))
+      window.setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (error) {
+      setErrorMessage(error?.message || (lang === 'vi' ? 'Lỗi khi lưu vào bộ sưu tập.' : 'Unable to save to the collection.'))
+    }
+  }
 
-        if (!existingCollection && collectionName !== DEFAULT_SUMMARY_COLLECTION) {
-          await collectionsApi.create({
-            name: collectionName,
-            title: collectionName,
-          })
-        }
-      }
-    } catch {
-      // Fall back to local persistence if the API is unavailable or the user is not yet synced.
+  const openCollectionEditor = (name = '') => {
+    const normalized = String(name || '').trim()
+    const editableName = normalized || DEFAULT_SUMMARY_COLLECTION
+    setEditingCollectionOriginal(normalized || DEFAULT_SUMMARY_COLLECTION)
+    setEditingCollectionName(editableName)
+    setEditingCollectionColor(getCollectionColor(editableName, DEFAULT_COLLECTION_COLOR))
+  }
+
+  const handleUpdateCollectionSettings = async () => {
+    const nextName = editingCollectionName.trim()
+    if (!nextName) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
     }
 
-    collectionMap[collectionName] = [nextItem, ...currentItems].slice(0, 50)
-    persistSavedCollections(collectionMap)
-    setCollectionOptions((current) => (current.includes(collectionName) ? current : [...current, collectionName]))
-    setSaveCollectionName(collectionName)
-    setSaveMenuOpen(false)
-    setCollectionSearchQuery('')
-    setNewCollectionName('')
-    setSuccessMessage(
-      lang === 'vi'
-        ? `Đã lưu tóm tắt vào bộ sưu tập "${collectionName}".`
-        : `Saved the summary into the "${collectionName}" collection.`,
+    const previousName = editingCollectionOriginal || DEFAULT_SUMMARY_COLLECTION
+    const safePreviousName = previousName === DEFAULT_SUMMARY_COLLECTION ? DEFAULT_SUMMARY_COLLECTION : previousName
+    const normalizedName = nextName.replace(/\s+/g, ' ').trim()
+
+    const hasDuplicateName = collectionOptions.some(
+      (name) => name.toLowerCase() === normalizedName.toLowerCase() && name !== safePreviousName,
     )
-    window.setTimeout(() => setSuccessMessage(''), 3000)
+    if (hasDuplicateName) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
+      return
+    }
+
+    setCollectionValidationError('')
+
+    if (normalizedName !== safePreviousName && safePreviousName !== DEFAULT_SUMMARY_COLLECTION) {
+      const metadata = collectionMetadata[safePreviousName]
+      if (metadata?.id) {
+        try {
+          await collectionsApi.update(metadata.id, { name: normalizedName, title: normalizedName, color: editingCollectionColor })
+        } catch {
+          // Keep the local fallback for the rename when the API is unavailable.
+        }
+      }
+    }
+
+    const storedColors = getSavedCollectionColors()
+    if (safePreviousName && safePreviousName !== DEFAULT_SUMMARY_COLLECTION && safePreviousName !== normalizedName) {
+      delete storedColors[safePreviousName]
+    }
+    storedColors[normalizedName] = editingCollectionColor
+    persistSavedCollectionColors(storedColors)
+
+    if (safePreviousName !== DEFAULT_SUMMARY_COLLECTION) {
+      const savedMap = getSavedCollections()
+      const previousItems = savedMap[safePreviousName] || []
+      if (savedMap[safePreviousName]) delete savedMap[safePreviousName]
+      if (normalizedName !== previousName) {
+        savedMap[normalizedName] = previousItems
+      }
+      persistSavedCollections(savedMap)
+    }
+
+    setCollectionOptions((current) => {
+      const withoutPrevious = current.filter((name) => name !== safePreviousName)
+      return [...new Set([...withoutPrevious, normalizedName])]
+    })
+    setCollectionMetadata((current) => {
+      const next = { ...current }
+      if (safePreviousName !== DEFAULT_SUMMARY_COLLECTION && safePreviousName !== normalizedName) {
+        delete next[safePreviousName]
+      }
+      next[normalizedName] = {
+        id: current[safePreviousName]?.id || current[normalizedName]?.id || null,
+        color: editingCollectionColor,
+      }
+      return next
+    })
+    if (saveCollectionName === safePreviousName) {
+      setSaveCollectionName(normalizedName)
+    }
+    setEditingCollectionName('')
+    setEditingCollectionOriginal('')
+    setEditingCollectionColor(DEFAULT_COLLECTION_COLOR)
   }
 
   const filteredCollectionOptions = collectionOptions.filter((name) => {
@@ -520,15 +685,21 @@ function HomePage() {
   })
 
   const handleOpenSaveMenu = () => {
+    if (!isProTierUser(userTier)) return
     if (saveMenuOpen) {
       setSaveMenuOpen(false)
       return
     }
 
+    if (!saveCollectionName) {
+      setSaveCollectionName(DEFAULT_SUMMARY_COLLECTION)
+    }
+
     const button = saveToggleRef.current?.getBoundingClientRect()
     if (button) {
+      const modalHeight = 320
       setMenuPosition({
-        top: button.bottom + window.scrollY + 8,
+        top: Math.max(12, button.top + window.scrollY - modalHeight + 18),
         left: Math.max(12, button.right + window.scrollX - 220),
       })
     }
@@ -537,16 +708,24 @@ function HomePage() {
 
   const handleCreateCollectionQuick = async () => {
     const nextName = newCollectionName.trim()
-    if (!nextName) return
+    if (!nextName) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
+    }
 
     const normalized = nextName.replace(/\s+/g, ' ').trim()
     const exists = collectionOptions.some((name) => name.toLowerCase() === normalized.toLowerCase())
     if (exists) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
       setSaveCollectionName(normalized)
       setNewCollectionName('')
       setCollectionSearchQuery('')
       return
     }
+
+    setCollectionValidationError('')
 
     try {
       const token = localStorage.getItem('accessToken')
@@ -560,6 +739,9 @@ function HomePage() {
     const nextCollectionMap = getSavedCollections()
     nextCollectionMap[normalized] = nextCollectionMap[normalized] || []
     persistSavedCollections(nextCollectionMap)
+    const nextColors = getSavedCollectionColors()
+    nextColors[normalized] = nextColors[normalized] || DEFAULT_COLLECTION_COLOR
+    persistSavedCollectionColors(nextColors)
     setCollectionOptions((current) => (current.includes(normalized) ? current : [...current, normalized]))
     setSaveCollectionName(normalized)
     setNewCollectionName('')
@@ -845,9 +1027,11 @@ function HomePage() {
         mode,
         output_format: outputFormat,
         summary_length_ratio: selectedSummaryLength,
+        collection_id: selectedCollectionId || null,
       })
       const nextSummary = response?.data?.summary || ''
       const directSummaryId = extractSummaryId(response)
+      setCurrentSummaryId(response?.data?.id || response?.id || directSummaryId || currentSummaryId)
       if (directSummaryId) {
         setLastSummaryId(directSummaryId)
       } else if (nextSummary) {
@@ -1367,93 +1551,6 @@ function HomePage() {
                 )}
               </div>
 
-              <div className="ml-2" ref={saveToggleRef}>
-                <button
-                  type="button"
-                  onClick={handleOpenSaveMenu}
-                  className="rounded-md bg-surface-base px-3 py-2 text-sm text-slate-300 transition hover:bg-surface-elevated"
-                >
-                  {t('output.save')}
-                </button>
-
-                {saveMenuOpen && (
-                  <div
-                    className="fixed z-[9999] w-72 rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl backdrop-blur-md"
-                    style={{
-                      top: `${menuPosition.top}px`,
-                      left: `${menuPosition.left}px`,
-                    }}
-                  >
-                    <div className="space-y-3">
-                      <div>
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          {t('output.chooseCollection')}
-                        </label>
-                        <input
-                          type="text"
-                          value={collectionSearchQuery}
-                          onChange={(event) => setCollectionSearchQuery(event.target.value)}
-                          placeholder={t('output.searchCollection')}
-                          className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
-                        />
-                      </div>
-
-                      <div className="max-h-36 space-y-2 overflow-y-auto rounded-lg border border-surface-border bg-surface-base/50 p-2">
-                        {filteredCollectionOptions.length === 0 ? (
-                          <p className="text-[11px] text-slate-400">{t('output.noCollections')}</p>
-                        ) : (
-                          filteredCollectionOptions.map((name) => (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => setSaveCollectionName(name)}
-                              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
-                                saveCollectionName === name
-                                  ? 'bg-accent/15 text-white ring-1 ring-accent/40'
-                                  : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
-                              }`}
-                            >
-                              <span>{name}</span>
-                              {saveCollectionName === name && <span className="text-[10px]">✓</span>}
-                            </button>
-                          ))
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          {t('output.newCollection')}
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={newCollectionName}
-                            onChange={(event) => setNewCollectionName(event.target.value)}
-                            placeholder={t('output.newCollectionPlaceholder')}
-                            className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleCreateCollectionQuick}
-                            className="rounded-lg bg-surface-elevated px-2 py-1.5 text-[10px] font-semibold text-slate-200 transition hover:bg-surface-base"
-                          >
-                            {t('output.create')}
-                          </button>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSaveSummaryToCollection(saveCollectionName)}
-                        disabled={!summary.trim()}
-                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {t('output.saveToCollection')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
               <ActionButton label={t('output.speak')} onClick={handleSpeak} disabled={!summary}>
                 <path
                   strokeLinecap="round"
@@ -1473,7 +1570,7 @@ function HomePage() {
 
       {/* Summarize button */}
       <div className="pb-4">
-        <div className="flex justify-center">
+        <div className="flex items-center justify-center gap-3">
           <button
             type="button"
             onClick={handleSummarize}
@@ -1506,6 +1603,160 @@ function HomePage() {
             </span>
             <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
           </button>
+
+          <div className="relative" ref={saveToggleRef}>
+            <button
+              type="button"
+              onClick={handleOpenSaveMenu}
+              title={t('output.saveToCollection')}
+              aria-label={t('output.saveToCollection')}
+              disabled={!canSaveCurrentOutput() || !isProTierUser(userTier)}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-surface-border bg-surface-raised text-slate-200 shadow-lg shadow-black/10 transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 4.75h9.5l2.75 2.75V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 4.75v5.5h7v-5.5M9 18.25h6" />
+              </svg>
+            </button>
+
+            {saveMenuOpen && (
+              <div
+                className="fixed z-[9999] w-72 rounded-xl border border-surface-border bg-surface-raised p-3 shadow-2xl backdrop-blur-md"
+                style={{
+                  top: `${menuPosition.top}px`,
+                  left: `${menuPosition.left}px`,
+                }}
+              >
+                {editingCollectionName ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        {t('output.chooseCollection')}
+                      </label>
+                      <input
+                        type="text"
+                        value={editingCollectionName}
+                        onChange={(event) => setEditingCollectionName(event.target.value)}
+                        className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Color
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {COLLECTION_SWATCHES.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setEditingCollectionColor(color)}
+                            className={`h-7 w-7 rounded-full border-2 transition ${
+                              editingCollectionColor === color ? 'border-white scale-110' : 'border-transparent'
+                            }`}
+                            style={{ backgroundColor: color }}
+                            aria-label={`Select color ${color}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleUpdateCollectionSettings}
+                        className="flex-1 rounded-lg bg-accent py-2 text-[10px] font-bold text-surface-base transition hover:bg-accent-hover"
+                      >
+                        {t('subscriptionsForm.update')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCollectionName('')
+                          setEditingCollectionOriginal('')
+                          setEditingCollectionColor(DEFAULT_COLLECTION_COLOR)
+                        }}
+                        className="flex-1 rounded-lg bg-surface-elevated py-2 text-[10px] font-bold text-slate-200 transition hover:bg-surface-base"
+                      >
+                        {t('subscriptionsForm.cancelEdit')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-3">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                        {t('output.chooseCollection')}
+                      </span>
+                    </div>
+
+                    <div className="mb-3">
+                      <input
+                        type="text"
+                        value={collectionSearchQuery}
+                        onChange={(event) => setCollectionSearchQuery(event.target.value)}
+                        placeholder={t('output.searchCollection')}
+                        className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-surface-border bg-surface-base/50 p-2">
+                      {filteredCollectionOptions.length === 0 ? (
+                        <p className="text-[11px] text-slate-400">{t('output.noCollections')}</p>
+                      ) : (
+                        filteredCollectionOptions.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={async () => {
+                              const nextCollectionId = name === DEFAULT_SUMMARY_COLLECTION ? '' : collectionMetadata[name]?.id || ''
+                              const summaryIdToUse = currentSummaryId || lastSummaryId
+
+                              setSaveCollectionName(name)
+                              setSelectedCollectionId(nextCollectionId)
+
+                              if (!summaryIdToUse) {
+                                setErrorMessage(
+                                  lang === 'vi'
+                                    ? 'Vui lòng tạo hoặc mở một bản tóm tắt trước khi lưu vào collection.'
+                                    : 'Please generate or open a summary before saving to a collection.',
+                                )
+                                return
+                              }
+
+                              if (nextCollectionId) {
+                                await handleSaveSummaryToCollection(nextCollectionId)
+                              } else {
+                                setSuccessMessage(
+                                  lang === 'vi' ? 'Đã chọn Default collection.' : 'Default collection selected.',
+                                )
+                                window.setTimeout(() => setSuccessMessage(''), 1500)
+                              }
+                            }}
+                            className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
+                              (saveCollectionName || DEFAULT_SUMMARY_COLLECTION) === name
+                                ? 'bg-accent/15 text-white ring-1 ring-accent/40'
+                                : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className="inline-block h-2.5 w-2.5 rounded-full"
+                                style={{ backgroundColor: getCollectionColor(name, DEFAULT_COLLECTION_COLOR) }}
+                              />
+                              {name}
+                            </span>
+                            {(saveCollectionName || DEFAULT_SUMMARY_COLLECTION) === name && <span className="text-[10px]">✓</span>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {successMessage && (

@@ -69,15 +69,50 @@ function formatLocalizedApiError(message) {
   return normalized
 }
 
+function isLikelyTechnicalBackendMessage(value) {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  const normalized = value.trim()
+  if (!normalized) {
+    return false
+  }
+
+  const lower = normalized.toLowerCase()
+  const technicalMarkers = [
+    'panic:',
+    'goroutine',
+    'stack trace',
+    'traceback',
+    'sql:',
+    'database error',
+    'internal server error',
+    'runtime error',
+    'exception:',
+    'at ',
+    'call stack',
+    'request id',
+    'trace id',
+    'debug:',
+    'error id',
+  ]
+
+  return technicalMarkers.some((marker) => lower.includes(marker))
+}
+
 function getErrorMessage(data) {
+  const genericMessage = getPreferredLanguage() === 'vi'
+    ? 'Yêu cầu không thể hoàn thành.'
+    : 'The request could not be completed.'
+
   if (!data) {
-    return getPreferredLanguage() === 'vi'
-      ? 'Yêu cầu không thể hoàn thành.'
-      : 'The request could not be completed.'
+    return genericMessage
   }
 
   if (typeof data === 'string') {
-    return formatLocalizedApiError(data)
+    const formatted = formatLocalizedApiError(data)
+    return isLikelyTechnicalBackendMessage(data) ? genericMessage : formatted
   }
 
   if (typeof data === 'object') {
@@ -85,29 +120,24 @@ function getErrorMessage(data) {
 
     for (const candidate of candidates) {
       if (typeof candidate === 'string' && candidate.trim()) {
+        if (isLikelyTechnicalBackendMessage(candidate)) {
+          return genericMessage
+        }
         return formatLocalizedApiError(candidate)
       }
 
       if (candidate && typeof candidate === 'object') {
         const nested = getErrorMessage(candidate)
-        if (nested && nested !== 'The request could not be completed.' && nested !== 'Yêu cầu không thể hoàn thành.') {
+        if (nested && nested !== genericMessage) {
           return nested
         }
       }
     }
 
-    try {
-      return formatLocalizedApiError(JSON.stringify(data))
-    } catch {
-      return getPreferredLanguage() === 'vi'
-        ? 'Yêu cầu không thể hoàn thành.'
-        : 'The request could not be completed.'
-    }
+    return genericMessage
   }
 
-  return getPreferredLanguage() === 'vi'
-    ? 'Yêu cầu không thể hoàn thành.'
-    : 'The request could not be completed.'
+  return genericMessage
 }
 
 async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {

@@ -78,11 +78,15 @@ function PricingPage() {
 
         setPlans(normalizedPlans)
 
+        const subPayload = subResponse?.data || subResponse || {}
         const tier =
-          subResponse?.data?.tier ||
-          subResponse?.tier ||
-          subResponse?.data?.subscription?.tier ||
+          subPayload?.tier ||
+          subPayload?.plan?.name ||
+          subPayload?.plan?.tier ||
+          subPayload?.subscription?.tier ||
+          subPayload?.subscription?.plan?.name ||
           'free'
+
         setCurrentTier(String(tier).toLowerCase())
       } catch (error) {
         setPlansError(error?.message || t('pricingPage.errors.loadPlans'))

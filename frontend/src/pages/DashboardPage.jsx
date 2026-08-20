@@ -262,13 +262,73 @@ function getFeedbackComment(feedback, lang) {
   return lang === 'vi' ? 'Người dùng không để lại bình luận.' : 'No comment provided by user.'
 }
 
+function normalizeTemplateKey(templateType) {
+  return String(templateType || '').trim().toLowerCase().replace(/[-_\s]+/g, '_')
+}
+
 function getFeedbackTemplateLabel(templateType, t) {
-  const normalized = String(templateType || '').trim().toLowerCase()
+  const normalized = normalizeTemplateKey(templateType)
   if (normalized === 'thank_you' || normalized === 'thankyou') return t('dashboard.feedbackTemplates.thankYou')
   if (normalized === 'apology') return t('dashboard.feedbackTemplates.apology')
   if (normalized === 'feature_noted' || normalized === 'feature-noted') return t('dashboard.feedbackTemplates.featureNoted')
   if (normalized === 'custom') return t('dashboard.feedbackTemplates.custom')
   return templateType
+}
+
+function getTemplateDefaultContent(templateType, templates = []) {
+  const normalized = normalizeTemplateKey(templateType)
+  if (!normalized || normalized === 'custom') {
+    return ''
+  }
+
+  for (const template of templates) {
+    const value = template?.type || template?.template_type || template?.name || template?.key
+    if (normalizeTemplateKey(value) === normalized) {
+      return (
+        template?.content ||
+        template?.reply_content ||
+        template?.default_content ||
+        template?.defaultContent ||
+        template?.message ||
+        template?.title ||
+        ''
+      )
+    }
+  }
+
+  return ''
+}
+
+function inferTemplateTypeFromReplyContent(replyContent, templates = []) {
+  const trimmedReply = String(replyContent || '').trim()
+  if (!trimmedReply) {
+    return ''
+  }
+
+  const normalizedReply = normalizeTemplateKey(trimmedReply)
+  if (!normalizedReply) {
+    return ''
+  }
+
+  for (const template of templates) {
+    const templateType = template?.type || template?.template_type || template?.name || template?.key
+    if (!templateType) continue
+
+    const templateContent = (
+      template?.content ||
+      template?.reply_content ||
+      template?.default_content ||
+      template?.defaultContent ||
+      template?.message ||
+      ''
+    )
+
+    if (templateContent && normalizeTemplateKey(templateContent) === normalizedReply) {
+      return String(templateType)
+    }
+  }
+
+  return ''
 }
 
 function getFeedbackReplyStatus(feedback) {
@@ -284,7 +344,7 @@ function getFeedbackReplyStatus(feedback) {
   return normalized === 'replied' ? 'replied' : 'pending'
 }
 
-function getFeedbackExistingReply(feedback) {
+function getFeedbackExistingReply(feedback, templates = []) {
   const replyContentCandidates = [
     feedback?.reply_content,
     feedback?.replyContent,
@@ -331,7 +391,7 @@ function getFeedbackExistingReply(feedback) {
   }
 
   if (!templateType && replyContent) {
-    templateType = 'custom'
+    templateType = inferTemplateTypeFromReplyContent(replyContent, templates) || 'custom'
   }
 
   return { replyContent, templateType }
@@ -740,20 +800,38 @@ function DashboardPage() {
     const { replyContent, templateType } = getFeedbackExistingReply(feedback)
     const form = replyForms[id] || { template_type: templateType, reply_content: replyContent }
     const currentStatus = getFeedbackReplyStatus(feedback)
+    const selectedTemplate = form.template_type || templateType || ''
+    const isCustomTemplate = normalizeTemplateKey(selectedTemplate) === 'custom'
+    const resolvedReplyContent = isCustomTemplate
+      ? (form.reply_content || '').trim()
+      : (getTemplateDefaultContent(selectedTemplate, templates) || form.reply_content || '').trim()
 
     if (currentStatus === 'replied') {
       return
     }
 
-    if (!form.reply_content.trim()) {
+    if (isCustomTemplate && !resolvedReplyContent) {
       setFeedbackError(lang === 'vi' ? 'Nội dung phản hồi không được để trống.' : 'Reply content is required.')
       return
     }
 
+    if (!isCustomTemplate && !resolvedReplyContent) {
+      setFeedbackError(lang === 'vi' ? 'Mẫu phản hồi đã chọn chưa có nội dung mặc định.' : 'The selected template has no default reply content.')
+      return
+    }
+
     try {
+      const nextReplyForm = {
+        ...form,
+        template_type: selectedTemplate || undefined,
+        reply_content: resolvedReplyContent,
+      }
+
+      setReplyForms((prev) => ({ ...prev, [id]: nextReplyForm }))
+
       await adminApi.feedbacks.reply(id, {
-        template_type: form.template_type || undefined,
-        reply_content: form.reply_content,
+        template_type: nextReplyForm.template_type || undefined,
+        reply_content: nextReplyForm.reply_content,
         admin_replied: 'replied',
       })
       await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
@@ -1158,7 +1236,7 @@ function DashboardPage() {
               const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
               const replyStatus = getFeedbackReplyStatus(feedback)
               const isReplied = replyStatus === 'replied'
-              const existingReply = getFeedbackExistingReply(feedback)
+              const existingReply = getFeedbackExistingReply(feedback, templates)
               const replyForm = replyForms[id] || { template_type: existingReply.templateType, reply_content: existingReply.replyContent }
               const displayedReplyContent = isReplied
                 ? (existingReply.replyContent || replyForm.reply_content || '')
@@ -1166,6 +1244,12 @@ function DashboardPage() {
               const selectedTemplateValue = isReplied
                 ? (existingReply.templateType || (existingReply.replyContent ? 'custom' : ''))
                 : (replyForm.template_type || existingReply.templateType || '')
+              const isCustomTemplate = normalizeTemplateKey(selectedTemplateValue) === 'custom'
+              const defaultTemplateReplyContent =
+                !isCustomTemplate && selectedTemplateValue ? getTemplateDefaultContent(selectedTemplateValue, templates) : ''
+              const resolvedDisplayedReplyContent = isCustomTemplate
+                ? (displayedReplyContent || '')
+                : (defaultTemplateReplyContent || displayedReplyContent || '')
               const selectedTemplateLabel = selectedTemplateValue ? getFeedbackTemplateLabel(selectedTemplateValue, t) : ''
               const hasSelectedTemplateInList = templates.some((tpl, tplIndex) => {
                 const value = tpl?.type || tpl?.template_type || `template-${tplIndex}`
@@ -1184,12 +1268,27 @@ function DashboardPage() {
                   <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
                     <select
                       value={selectedTemplateValue}
-                      onChange={(e) => setReplyForms((prev) => ({ ...prev, [id]: { ...replyForm, template_type: e.target.value } }))}
+                      onChange={(e) => {
+                        const nextTemplateType = e.target.value
+                        const nextTemplateContent = nextTemplateType && normalizeTemplateKey(nextTemplateType) !== 'custom'
+                          ? getTemplateDefaultContent(nextTemplateType, templates)
+                          : replyForm.reply_content || ''
+
+                        setReplyForms((prev) => ({
+                          ...prev,
+                          [id]: {
+                            ...replyForm,
+                            template_type: nextTemplateType,
+                            reply_content: nextTemplateType && normalizeTemplateKey(nextTemplateType) !== 'custom' ? nextTemplateContent : replyForm.reply_content || '',
+                          },
+                        }))
+                      }}
                       disabled={isReplied}
                       className="rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
                     >
                       <option value="">{t('dashboard.feedbackTemplates.select')}</option>
-                      {selectedTemplateValue && !hasSelectedTemplateInList && (
+                      <option value="custom">{t('dashboard.feedbackTemplates.custom')}</option>
+                      {selectedTemplateValue && !hasSelectedTemplateInList && !isCustomTemplate && (
                         <option value={selectedTemplateValue}>{selectedTemplateLabel}</option>
                       )}
                       {templates.map((tpl, tplIndex) => {
@@ -1199,11 +1298,12 @@ function DashboardPage() {
                       })}
                     </select>
                     <input
-                      value={displayedReplyContent}
+                      value={resolvedDisplayedReplyContent}
                       onChange={(e) => setReplyForms((prev) => ({ ...prev, [id]: { ...replyForm, reply_content: e.target.value } }))}
                       placeholder={t('dashboard.feedbackModerationUi.replyPlaceholder')}
-                      disabled={isReplied}
-                      className="rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+                      readOnly={!isCustomTemplate}
+                      disabled={isReplied || !isCustomTemplate}
+                      className={`rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 ${!isCustomTemplate ? 'cursor-not-allowed opacity-80' : ''}`}
                     />
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => handleReplyFeedback(feedback, index)} disabled={isReplied} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-70">

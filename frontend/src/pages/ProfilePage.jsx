@@ -44,12 +44,35 @@ function ProfilePage() {
 
       try {
         const response = await authApi.me()
-        const user = response?.user || response?.data?.user || response?.data || response
+        const payload = response?.data || response || {}
+        const user = payload?.user || payload || {}
+
+        const normalizePlanValue = (value) => {
+          if (!value && value !== 0) return 'Free'
+          const normalized = String(value).trim().toLowerCase()
+          if (!normalized) return 'Free'
+          if (normalized.includes('max')) return 'Max'
+          if (normalized.includes('pro')) return 'Pro'
+          if (normalized.includes('free')) return 'Free'
+          return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+        }
+
+        const resolvedPlan =
+          normalizePlanValue(payload?.current_tier) ||
+          normalizePlanValue(payload?.currentTier) ||
+          normalizePlanValue(user?.current_tier) ||
+          normalizePlanValue(user?.currentTier) ||
+          normalizePlanValue(payload?.subscription?.tier) ||
+          normalizePlanValue(user?.subscription?.tier) ||
+          normalizePlanValue(user?.tier) ||
+          normalizePlanValue(user?.plan) ||
+          'Free'
+
         const nextProfile = {
           displayName: user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || '',
           email: user?.email || '',
           role: user?.role || 'Member',
-          plan: user?.plan || 'Free',
+          plan: resolvedPlan,
         }
 
         setProfile(nextProfile)

@@ -19,8 +19,20 @@ function readLocalCollectionData() {
 }
 
 function getHistoryCollection(item) {
-  const collection = item?.collection || item?.collection_name || item?.collectionName || item?.category || DEFAULT_COLLECTION_NAME
-  return collection || DEFAULT_COLLECTION_NAME
+  if (typeof item?.collection === 'string' && item.collection.trim()) {
+    return item.collection.trim()
+  }
+
+  if (item?.collection && typeof item.collection === 'object' && item.collection.name) {
+    return String(item.collection.name).trim()
+  }
+
+  const fallback = item?.collection_name || item?.collectionName || item?.category
+  if (fallback && typeof fallback === 'string') {
+    return fallback.trim()
+  }
+
+  return DEFAULT_COLLECTION_NAME
 }
 
 function getHistoryBookmark(item) {
@@ -59,6 +71,10 @@ function getHistoryTitle(item) {
 }
 
 function getHistoryCreatedAt(item) {
+  return item?.created_at || item?.createdAt || item?.updated_at || item?.updatedAt || ''
+}
+
+function getCollectionCreatedAt(item) {
   return item?.created_at || item?.createdAt || item?.updated_at || item?.updatedAt || ''
 }
 
@@ -116,11 +132,14 @@ function HistoryOverlay() {
   const [collections, setCollections] = useState([])
   const [collectionFilter, setCollectionFilter] = useState('all')
   const [newCollectionName, setNewCollectionName] = useState('')
+  const [collectionValidationError, setCollectionValidationError] = useState('')
   const [collectionsLoading, setCollectionsLoading] = useState(false)
   const [collectionsError, setCollectionsError] = useState('')
   const [collectionSearch, setCollectionSearch] = useState('')
   const [collectionDateFilter, setCollectionDateFilter] = useState('all')
   const [collectionSortBy, setCollectionSortBy] = useState('newest')
+  const [editingCollectionId, setEditingCollectionId] = useState('')
+  const [editingCollectionName, setEditingCollectionName] = useState('')
 
   const [editId, setEditId] = useState('')
   const [editTitle, setEditTitle] = useState('')
@@ -137,6 +156,8 @@ function HistoryOverlay() {
       title: item?.title || item?.name || name,
       description: item?.description || '',
       count: Number(item?.count ?? item?.item_count ?? item?.items_count ?? 0) || 0,
+      created_at: getCollectionCreatedAt(item),
+      createdAt: getCollectionCreatedAt(item),
     }
   }
 
@@ -250,7 +271,22 @@ function HistoryOverlay() {
 
   const createCollection = async () => {
     const trimmed = newCollectionName.trim()
-    if (!trimmed) return
+    if (!trimmed) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
+    }
+
+    const exists = collections.some(
+      (collection) => String(collection?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exists) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
+      return
+    }
+
+    setCollectionValidationError('')
 
     try {
       await collectionsApi.create({ name: trimmed, title: trimmed })
@@ -274,6 +310,53 @@ function HistoryOverlay() {
       }
     } catch (nextError) {
       setCollectionsError(nextError?.message || 'Unable to delete collection.')
+    }
+  }
+
+  const startEditCollection = (collection) => {
+    if (!collection?.id) return
+    setEditingCollectionId(collection.id)
+    setEditingCollectionName(collection.name || '')
+    setCollectionValidationError('')
+  }
+
+  const cancelEditCollection = () => {
+    setEditingCollectionId('')
+    setEditingCollectionName('')
+    setCollectionValidationError('')
+  }
+
+  const saveCollectionEdit = async (collection) => {
+    if (!collection?.id) return
+
+    const trimmed = editingCollectionName.trim()
+    if (!trimmed) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
+    }
+
+    const hasDuplicate = collections.some(
+      (item) => item.id !== collection.id && String(item?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (hasDuplicate) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
+      return
+    }
+
+    setCollectionValidationError('')
+
+    try {
+      await collectionsApi.update(collection.id, { name: trimmed, title: trimmed })
+      setEditingCollectionId('')
+      setEditingCollectionName('')
+      await loadCollections()
+      if (selectedCollection?.id === collection.id) {
+        await loadCollectionDetail(collection.id, selectedCollectionPage)
+      }
+    } catch (nextError) {
+      setCollectionsError(nextError?.message || 'Unable to update collection.')
     }
   }
 
@@ -313,6 +396,15 @@ function HistoryOverlay() {
       }
     }
 
+    const handleHistoryUpdate = () => {
+      if (isLoggedIn) {
+        loadHistoryList(page)
+        loadCollections()
+      }
+    }
+
+    window.addEventListener('history:updated', handleHistoryUpdate)
+
     if (isHistoryOpen) {
       document.addEventListener('keydown', handleEscape)
       document.body.style.overflow = 'hidden'
@@ -331,10 +423,11 @@ function HistoryOverlay() {
     }
 
     return () => {
+      window.removeEventListener('history:updated', handleHistoryUpdate)
       document.removeEventListener('keydown', handleEscape)
       document.body.style.overflow = 'unset'
     }
-  }, [isHistoryOpen, closeHistory, isLoggedIn, t])
+  }, [isHistoryOpen, closeHistory, isLoggedIn, t, page])
 
   useEffect(() => {
     if (!isHistoryOpen || !isLoggedIn) return
@@ -974,7 +1067,10 @@ function HistoryOverlay() {
               <div className="mb-4 flex gap-2">
                 <input
                   value={newCollectionName}
-                  onChange={(event) => setNewCollectionName(event.target.value)}
+                  onChange={(event) => {
+                    setNewCollectionName(event.target.value)
+                    if (collectionValidationError) setCollectionValidationError('')
+                  }}
                   placeholder={t('historyOverlay.collectionNamePlaceholder')}
                   className="w-full rounded-lg border border-surface-border bg-surface-base px-2 py-2 text-xs text-slate-200 placeholder:text-slate-500 outline-none"
                 />
@@ -987,6 +1083,7 @@ function HistoryOverlay() {
                 </button>
               </div>
 
+              {collectionValidationError && <p className="mb-3 text-xs text-rose-300">{collectionValidationError}</p>}
               {collectionsError && <p className="mb-3 text-xs text-rose-300">{collectionsError}</p>}
 
               {collectionsLoading ? (
@@ -1000,36 +1097,81 @@ function HistoryOverlay() {
               ) : (
                 <div className="space-y-3">
                   {filteredCollections.map((collection) => (
-                    <button
+                    <div
                       key={collection.id}
-                      type="button"
-                      onClick={() => handleOpenCollection(collection)}
-                      className="w-full rounded-2xl border border-surface-border/40 bg-surface-base/35 p-3 text-left transition hover:border-surface-border hover:bg-surface-base/60"
+                      className="rounded-2xl border border-surface-border/40 bg-surface-base/35 p-3 transition hover:border-surface-border hover:bg-surface-base/60"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCollection(collection)}
+                          className="min-w-0 flex-1 text-left"
+                        >
                           <div className="truncate text-sm font-semibold text-slate-100">{collection.name}</div>
                           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                             <span>
                               {collection.count || 0} {t('historyOverlay.collectionCount')}
                             </span>
                             <span>
-                              {t('historyOverlay.createdAt')}: {formatDate(collection.created_at || collection.createdAt, lang)}
+                              {t('historyOverlay.createdAt')}: {formatDate(getCollectionCreatedAt(collection), lang)}
                             </span>
                           </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            deleteCollection(collection)
-                          }}
-                          className="text-[10px] font-medium text-rose-300 hover:text-rose-200"
-                        >
-                          {t('historyOverlay.remove')}
                         </button>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              startEditCollection(collection)
+                            }}
+                            className="text-[10px] font-medium text-slate-300 hover:text-white"
+                          >
+                            {t('historyOverlay.edit')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              deleteCollection(collection)
+                            }}
+                            className="text-[10px] font-medium text-rose-300 hover:text-rose-200"
+                          >
+                            {t('historyOverlay.remove')}
+                          </button>
+                        </div>
                       </div>
-                    </button>
+
+                      {editingCollectionId === collection.id && (
+                        <div className="mt-3 space-y-2 border-t border-surface-border/60 pt-3">
+                          <input
+                            value={editingCollectionName}
+                            onChange={(event) => setEditingCollectionName(event.target.value)}
+                            className="w-full rounded-lg border border-surface-border bg-surface-base px-2 py-2 text-xs text-slate-200 placeholder:text-slate-500 outline-none"
+                            placeholder={t('historyOverlay.collectionNamePlaceholder')}
+                          />
+                          {collectionValidationError && (
+                            <p className="text-[10px] text-rose-300">{collectionValidationError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => saveCollectionEdit(collection)}
+                              className="flex-1 rounded-lg bg-accent px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-surface-base"
+                            >
+                              {t('historyOverlay.save')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditCollection}
+                              className="flex-1 rounded-lg bg-surface-elevated px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                            >
+                              {t('historyOverlay.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
