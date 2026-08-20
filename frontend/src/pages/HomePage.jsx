@@ -4,8 +4,13 @@ import { collectionsApi, feedbacksApi, historyApi, ocrApi, subscriptionsApi, sum
 import OcrOutputBox from '../components/OcrOutputBox'
 import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
-import { jsPDF } from 'jspdf'
+import { Document, Font, Page, StyleSheet, Text, pdf } from '@react-pdf/renderer'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
+
+Font.register({
+  family: 'Noto Sans Vietnamese',
+  src: 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
+})
 
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
@@ -319,12 +324,17 @@ function HomePage() {
   const saveContainerRef = useRef(null)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
-  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
-  const [feedbackRating, setFeedbackRating] = useState('dislike')
-  const [feedbackReason, setFeedbackReason] = useState('missing_info')
+  const [feedbackRating, setFeedbackRating] = useState(0)
+  const [feedbackCriteria, setFeedbackCriteria] = useState([])
+  const [feedbackSelectedTags, setFeedbackSelectedTags] = useState([])
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
   const [feedbackSubmitError, setFeedbackSubmitError] = useState('')
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
+  const [feedbackWizardStep, setFeedbackWizardStep] = useState('stars')
+  const [feedbackStarMenuOpen, setFeedbackStarMenuOpen] = useState(false)
+  const [feedbackCriteriaLoading, setFeedbackCriteriaLoading] = useState(false)
+  const [feedbackTargetType, setFeedbackTargetType] = useState('summary')
   const [lastSummaryId, setLastSummaryId] = useState('')
   const [selectedUploadFile, setSelectedUploadFile] = useState(null)
   const [ocrBlocks, setOcrBlocks] = useState([])
@@ -348,7 +358,7 @@ function HomePage() {
       setMode(nextSummaryText ? 'summary' : 'extract')
       setErrorMessage('')
       setFeedbackSubmitError('')
-      setIsFeedbackOpen(false)
+      setFeedbackModalOpen(false)
       setSuccessMessage(lang === 'vi' ? 'Đã tải nội dung từ lịch sử.' : 'Loaded content from history.')
 
       if (clearMessageTimer) {
@@ -975,33 +985,85 @@ function HomePage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const openFeedbackForm = (rating) => {
-    setFeedbackRating(rating)
-    setFeedbackReason('missing_info')
+  const fetchFeedbackCriteria = async (ratingValue, targetType = feedbackTargetType) => {
+    setFeedbackCriteriaLoading(true)
+    setFeedbackSubmitError('')
+
+    try {
+      const response = await feedbacksApi.criteria({ target_type: targetType, rating: ratingValue })
+      const rawCriteria = response?.criteria || response?.data?.criteria || []
+      setFeedbackCriteria(Array.isArray(rawCriteria) ? rawCriteria : [])
+    } catch {
+      setFeedbackCriteria([])
+    } finally {
+      setFeedbackCriteriaLoading(false)
+    }
+  }
+
+  const handleFeedbackRatingSelection = async (ratingValue) => {
+    setFeedbackRating(ratingValue)
+    setFeedbackSelectedTags([])
     setFeedbackText('')
     setFeedbackSubmitError('')
-    setIsFeedbackOpen(true)
+    setFeedbackWizardStep('criteria')
+    await fetchFeedbackCriteria(ratingValue, feedbackTargetType)
+  }
+
+  const openFeedbackForm = (ratingValue = 0, targetType = 'summary') => {
+    setFeedbackTargetType(targetType)
+    setFeedbackModalOpen(true)
+    setFeedbackText('')
+    setFeedbackSelectedTags([])
+    setFeedbackSubmitError('')
+    setFeedbackWizardStep('stars')
+    setFeedbackRating(0)
+    setFeedbackCriteria([])
+    setFeedbackStarMenuOpen(false)
+
+    if (ratingValue > 0) {
+      setFeedbackTargetType(targetType)
+      handleFeedbackRatingSelection(ratingValue)
+    }
+  }
+
+  const openSummaryFeedbackForm = (ratingValue = 0) => {
+    openFeedbackForm(ratingValue, 'summary')
+  }
+
+  const openSystemFeedbackForm = (ratingValue = 0) => {
+    openFeedbackForm(ratingValue, 'system')
   }
 
   const closeFeedbackForm = () => {
-    setIsFeedbackOpen(false)
+    setFeedbackModalOpen(false)
+    setFeedbackStarMenuOpen(false)
+    setFeedbackWizardStep('stars')
+    setFeedbackRating(0)
+    setFeedbackSelectedTags([])
+    setFeedbackText('')
     setFeedbackSubmitError('')
+    setFeedbackCriteria([])
+  }
+
+  const toggleFeedbackTag = (tag) => {
+    setFeedbackSelectedTags((current) =>
+      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag],
+    )
   }
 
   const handleSendFeedback = async () => {
-    if (!summary) return
-
     const trimmedComment = feedbackText.trim()
-    const resolvedSummaryId = lastSummaryId || await resolveLatestSummaryId()
-    if (!resolvedSummaryId) {
-      setFeedbackSubmitError(t('feedback.summaryIdRequired'))
+
+    if (feedbackRating < 1 || feedbackRating > 5) {
+      setFeedbackSubmitError(t('feedback.submitFailed'))
       return
     }
-    if (resolvedSummaryId !== lastSummaryId) {
-      setLastSummaryId(resolvedSummaryId)
-    }
-    if (!trimmedComment) {
-      setFeedbackSubmitError(t('feedback.commentRequired'))
+    if (feedbackRating <= 3 && feedbackSelectedTags.length === 0 && !trimmedComment) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Vui lòng chọn ít nhất một tiêu chí hoặc viết nhận xét.'
+          : 'Please select at least one issue or add a comment.',
+      )
       return
     }
 
@@ -1009,12 +1071,18 @@ function HomePage() {
     setFeedbackSubmitError('')
 
     try {
-      await feedbacksApi.create({
-        summary_id: resolvedSummaryId,
+      const payload = {
+        target_type: feedbackTargetType,
         rating: feedbackRating,
-        error_reason: feedbackRating === 'dislike' ? feedbackReason : undefined,
+        tags: feedbackSelectedTags,
         comment: trimmedComment,
-      })
+      }
+
+      if (summary && (lastSummaryId || currentSummaryId)) {
+        payload.summary_id = lastSummaryId || currentSummaryId
+      }
+
+      await feedbacksApi.create(payload)
 
       closeFeedbackForm()
       setSuccessMessage(t('feedback.submitted'))
@@ -1080,15 +1148,31 @@ function HomePage() {
     setDownloadMenuOpen(true)
   }
 
-  const generatePDF = (fileName = 'summary.pdf') => {
+  const generatePDF = async (fileName = 'summary.pdf') => {
     try {
-      const doc = new jsPDF()
-      const margin = 10
-      const pageWidth = doc.internal.pageSize.getWidth() - margin * 2
-      const lines = doc.splitTextToSize(summary, pageWidth)
-      doc.setFontSize(12)
-      doc.text(lines, margin, margin + 5)
-      const blob = doc.output('blob')
+      const styles = StyleSheet.create({
+        page: {
+          padding: 28,
+          paddingTop: 32,
+          backgroundColor: '#ffffff',
+        },
+        content: {
+          fontFamily: 'Noto Sans Vietnamese',
+          fontSize: 12,
+          lineHeight: 1.7,
+          color: '#111827',
+        },
+      })
+
+      const content = summary || ''
+      const blob = await pdf(
+        <Document>
+          <Page size="A4" style={styles.page}>
+            <Text style={styles.content}>{content}</Text>
+          </Page>
+        </Document>
+      ).toBlob()
+
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -1323,52 +1407,49 @@ function HomePage() {
               {t('input.sentences')}
             </span>
 
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               {summary && (
-                <>
-                  <span className="hidden text-xs text-slate-400 sm:block">{t('output.rateSummary')}</span>
-                  {/* Thumbs Up Button */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setFeedbackStarMenuOpen(true)}
+                  onMouseLeave={() => setFeedbackStarMenuOpen(false)}
+                >
                   <button
                     type="button"
-                    onClick={() => openFeedbackForm('like')}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-accent"
-                    aria-label={t('output.like')}
+                    onClick={() => openSummaryFeedbackForm()}
+                    className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+                    aria-label={lang === 'vi' ? 'Đánh giá tóm tắt' : 'Summary feedback'}
                   >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M7 10v12" />
-                      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+                    <span>{lang === 'vi' ? 'Đánh giá tóm tắt' : 'Summary feedback'}</span>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 7.5l5 5 5-5" />
                     </svg>
                   </button>
 
-                  {/* Thumbs Down Button */}
-                  <button
-                    type="button"
-                    onClick={() => openFeedbackForm('dislike')}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-red-400"
-                    aria-label={t('output.dislike')}
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M17 14V2" />
-                      <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
-                    </svg>
-                  </button>
-                </>
+                  {feedbackStarMenuOpen && (
+                    <div className="absolute right-0 top-full z-30 mt-2 rounded-xl border border-surface-border bg-surface-raised/95 p-2 shadow-2xl backdrop-blur-md">
+                      <div className="flex items-center gap-1.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => {
+                              setFeedbackTargetType('summary')
+                              handleFeedbackRatingSelection(star)
+                              setFeedbackModalOpen(true)
+                            }}
+                            className="rounded-md p-1 text-slate-600 transition hover:bg-surface-elevated hover:text-yellow-300"
+                            aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                          >
+                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                            </svg>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <ActionButton
                 label={copied ? t('output.copied') : t('output.copy')}
@@ -1761,9 +1842,9 @@ function HomePage() {
         )}
       </div>
 
-      {isFeedbackOpen && (
+      {feedbackModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl">
+          <div className="w-full max-w-xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl">
             <div className="flex items-center justify-between border-b border-surface-border px-6 py-5">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('feedback.title')}</p>
@@ -1779,50 +1860,143 @@ function HomePage() {
                 </svg>
               </button>
             </div>
-            <div className="space-y-4 px-6 py-5">
-              {feedbackRating === 'dislike' && (
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-reason">
-                    {t('feedback.errorReasonLabel')}
-                  </label>
-                  <select
-                    id="feedback-reason"
-                    value={feedbackReason}
-                    onChange={(e) => setFeedbackReason(e.target.value)}
-                    className="w-full rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/30"
-                  >
-                    {DISLIKE_REASONS.map((reason) => (
-                      <option key={reason} value={reason}>{t(`feedback.reasons.${reason}`)}</option>
-                    ))}
-                  </select>
+
+            <div className="space-y-5 px-6 py-5">
+              {feedbackWizardStep === 'stars' ? (
+                <div className="space-y-4">
+                  <p className="text-center text-sm text-slate-300">
+                    {lang === 'vi' ? 'Bạn thấy hệ thống hoạt động như thế nào?' : 'How would you rate the system experience?'}
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const isActive = star <= feedbackRating
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => handleFeedbackRatingSelection(star)}
+                          className={`rounded-full p-2 transition hover:scale-110 hover:bg-surface-elevated ${
+                            isActive ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-300'
+                          }`}
+                          aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                        >
+                          <svg viewBox="0 0 20 20" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" className="h-10 w-10">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                          </svg>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-sm text-slate-300">
+                      {lang === 'vi' ? 'Bạn đã chọn' : 'You selected'} <span className="font-semibold text-white">{feedbackRating}/5</span>
+                    </p>
+                    <div className="flex gap-1 text-yellow-400">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <svg
+                          key={star}
+                          viewBox="0 0 20 20"
+                          fill={star <= feedbackRating ? 'currentColor' : 'none'}
+                          stroke="currentColor"
+                          className="h-5 w-5"
+                        >
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                        </svg>
+                      ))}
+                    </div>
+                  </div>
+
+                  {feedbackCriteriaLoading ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-400">
+                      {lang === 'vi' ? 'Đang tải tiêu chí đánh giá...' : 'Loading feedback criteria...'}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {feedbackCriteria.length > 0 ? (
+                          feedbackCriteria.map((criteria) => {
+                            const isSelected = feedbackSelectedTags.includes(criteria.code)
+                            return (
+                              <button
+                                key={criteria.code}
+                                type="button"
+                                onClick={() => toggleFeedbackTag(criteria.code)}
+                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                  isSelected
+                                    ? 'border-accent bg-accent/15 text-white'
+                                    : 'border-surface-border bg-surface-base text-slate-300 hover:border-accent/50 '
+                                }`}
+                              >
+                                {criteria.label}
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <p className="text-sm text-slate-400">
+                            {lang === 'vi' ? 'Không có tiêu chí nào cho mức sao này.' : 'No criteria are available for this rating.'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
+                          {lang === 'vi' ? 'Nhận xét chi tiết' : 'Detailed feedback'}
+                        </label>
+                        <textarea
+                          id="feedback-detail"
+                          value={feedbackText}
+                          onChange={(e) => setFeedbackText(e.target.value)}
+                          rows={4}
+                          placeholder={lang === 'vi' ? 'Viết thêm ý kiến của bạn...' : 'Write a few more details...'}
+                          className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
-                  {feedbackRating === 'like' ? t('feedback.likeCommentLabel') : t('feedback.detailsLabel')}
-                </label>
-                <textarea
-                  id="feedback-detail"
-                  value={feedbackText}
-                  onChange={(e) => setFeedbackText(e.target.value)}
-                  rows={4}
-                  placeholder={feedbackRating === 'like' ? t('feedback.likePlaceholder') : t('feedback.placeholder')}
-                  className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-              </div>
               {feedbackSubmitError && (
                 <p className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
                   {feedbackSubmitError}
                 </p>
               )}
             </div>
+
             <div className="flex flex-col gap-3 border-t border-surface-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-sm text-slate-400">{t('feedback.note')}</span>
+              <div className="flex items-center gap-2">
+                {feedbackWizardStep !== 'stars' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedbackWizardStep('stars')
+                      setFeedbackSelectedTags([])
+                      setFeedbackText('')
+                      setFeedbackSubmitError('')
+                    }}
+                    className="rounded-full border border-surface-border bg-surface-base px-3 py-2 text-xs text-slate-300"
+                  >
+                    {lang === 'vi' ? 'Quay lại' : 'Back'}
+                  </button>
+                )}
+              </div>
+
+              <span className="text-sm text-slate-400">
+                {feedbackTargetType === 'system'
+                  ? lang === 'vi'
+                    ? 'Đánh giá này nhằm cải thiện trải nghiệm hệ thống.'
+                    : 'This feedback helps improve the system experience.'
+                  : lang === 'vi'
+                    ? 'Đánh giá này nhằm cải thiện chất lượng bản tóm tắt.'
+                    : 'This feedback helps improve the summary quality.'}
+              </span>
               <button
                 type="button"
                 onClick={handleSendFeedback}
-                disabled={!summary || feedbackSubmitting}
+                disabled={!summary || feedbackSubmitting || feedbackWizardStep === 'stars'}
                 className="inline-flex items-center justify-center rounded-3xl bg-accent px-5 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:opacity-40"
               >
                 {feedbackSubmitting ? t('feedback.sending') : t('feedback.send')}
@@ -1831,6 +2005,16 @@ function HomePage() {
           </div>
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={() => openSystemFeedbackForm()}
+        className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-xl text-surface-base shadow-2xl shadow-accent/30 transition hover:scale-105 hover:bg-accent-hover"
+        aria-label={lang === 'vi' ? 'Đánh giá hệ thống' : 'System feedback'}
+        title={lang === 'vi' ? 'Đánh giá hệ thống để cải thiện trải nghiệm hệ thống' : 'System feedback to improve the platform experience'}
+      >
+        ★
+      </button>
     </div>
   )
 }

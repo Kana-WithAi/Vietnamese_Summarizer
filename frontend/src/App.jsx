@@ -9,6 +9,7 @@ import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
 import ProfilePage from './pages/ProfilePage'
 import PricingPage from './pages/PricingPage'
+import FeedbackPublicPage from './pages/FeedbackPublicPage'
 import PaymentStatusPage from './pages/PaymentStatusPage'
 import PaymentCancelPage from './pages/PaymentCancelPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
@@ -138,6 +139,14 @@ function App() {
                 element={
                   <Layout>
                     <PricingPage />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/feedbacks"
+                element={
+                  <Layout>
+                    <FeedbackPublicPage />
                   </Layout>
                 }
               />

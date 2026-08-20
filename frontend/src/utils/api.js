@@ -300,6 +300,7 @@ export const ocrApi = {
 
 export const feedbacksApi = {
   list: (params = {}) => request(`/feedbacks${buildQuery(params)}`),
+  criteria: (params = {}) => request(`/feedbacks/criteria${buildQuery(params)}`),
   create: (payload) => request('/feedbacks', { method: 'POST', body: payload, auth: true }),
   update: (id, payload) => request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true }),
   remove: (id) => request(`/feedbacks/${id}`, { method: 'DELETE', auth: true }),

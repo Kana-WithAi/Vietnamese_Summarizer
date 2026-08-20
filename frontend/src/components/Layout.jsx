@@ -11,7 +11,7 @@ import BookmarkOverlay from './BookmarkOverlay'
 function Layout({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const { theme, setTheme } = useTheme()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
@@ -111,6 +111,12 @@ function Layout({ children }) {
               className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"
             >
               {t('nav.pricing')}
+            </Link>
+            <Link
+              to="/feedbacks"
+              className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"
+            >
+              {lang === 'vi' ? 'Đánh giá' : 'Reviews'}
             </Link>
             {['history', 'bookmark'].map((item) => (
               <button
