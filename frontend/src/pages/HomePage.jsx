@@ -303,19 +303,20 @@ function HomePage() {
   const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [saveMenuOpen, setSaveMenuOpen] = useState(false)
-  const [saveCollectionName, setSaveCollectionName] = useState('')
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false)
+  const [createTitle, setCreateTitle] = useState('')
+  const [createColor, setCreateColor] = useState(DEFAULT_COLLECTION_COLOR)
+  const [createError, setCreateError] = useState('')
+  const [isSubmittingCollection, setIsSubmittingCollection] = useState(false)
   const [selectedCollectionId, setSelectedCollectionId] = useState('')
-  const [currentSummaryId, setCurrentSummaryId] = useState('')
-  const [collectionOptions, setCollectionOptions] = useState([DEFAULT_SUMMARY_COLLECTION])
+  const [selectedCollectionName, setSelectedCollectionName] = useState('')
+  const [selectedCollectionColor, setSelectedCollectionColor] = useState('')
+  const [collections, setCollections] = useState([])
   const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
-  const [newCollectionName, setNewCollectionName] = useState('')
-  const [collectionValidationError, setCollectionValidationError] = useState('')
-  const [editingCollectionName, setEditingCollectionName] = useState('')
-  const [editingCollectionColor, setEditingCollectionColor] = useState(DEFAULT_COLLECTION_COLOR)
-  const [editingCollectionOriginal, setEditingCollectionOriginal] = useState('')
+  const [maxFolders, setMaxFolders] = useState(0)
   const [userTier, setUserTier] = useState('free')
-  const [collectionMetadata, setCollectionMetadata] = useState({})
-  const saveToggleRef = useRef(null)
+  const [currentSummaryId, setCurrentSummaryId] = useState('')
+  const saveContainerRef = useRef(null)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
@@ -466,287 +467,184 @@ function HomePage() {
   }
 
   useEffect(() => {
-    const loadUserTier = async () => {
+    const loadUserSubscription = async () => {
       const token = localStorage.getItem('accessToken')
       if (!token) {
         setUserTier('free')
+        setMaxFolders(0)
         return
       }
 
       try {
-        const response = await subscriptionsApi.me().catch(() => null)
-        const data = response?.data || response || {}
+        const [subResponse, plansResponse] = await Promise.all([
+          subscriptionsApi.me().catch(() => null),
+          subscriptionsApi.plans().catch(() => null),
+        ])
+
+        const subData = subResponse?.data || subResponse || {}
+        const planObj = subData?.plan || subData?.subscription?.plan || subData?.subscription || {}
+
+        let folders =
+          subData?.max_folders ??
+          subData?.maxFolders ??
+          planObj?.max_folders ??
+          planObj?.maxFolders ??
+          null
+
+        if (folders === null && plansResponse) {
+          const plansList = plansResponse?.data?.plans || plansResponse?.data || plansResponse || []
+          const currentPlanId = subData?.plan_id || subData?.planId || planObj?.id || planObj?.plan_id
+          const currentTier = String(subData?.tier || planObj?.tier || planObj?.name || 'free').toLowerCase()
+
+          if (Array.isArray(plansList)) {
+            const matched = plansList.find((p) =>
+              (currentPlanId && (p?.id === currentPlanId || p?.plan_id === currentPlanId)) ||
+              (String(p?.name || p?.tier || '').toLowerCase() === currentTier),
+            )
+            if (matched) {
+              folders = matched?.max_folders ?? matched?.maxFolders ?? null
+            }
+          }
+        }
 
         const tier =
-          data?.tier ||
-          data?.tier_name ||
-          data?.plan?.tier ||
-          data?.plan?.name ||
-          data?.subscription?.tier ||
-          data?.subscription?.plan?.tier ||
-          data?.subscription?.plan?.name ||
+          subData?.tier ||
+          subData?.tier_name ||
+          planObj?.tier ||
+          planObj?.name ||
           'free'
 
         setUserTier(String(tier).toLowerCase())
+        setMaxFolders(Number(folders ?? 0))
       } catch {
         setUserTier('free')
+        setMaxFolders(0)
       }
     }
 
-    loadUserTier()
+    loadUserSubscription()
+  }, [])
+
+  const loadCollections = async () => {
+    const token = localStorage.getItem('accessToken')
+    if (!token) {
+      setCollections([])
+      return
+    }
+
+    try {
+      const response = await collectionsApi.list({ page: 1, limit: 100 })
+      const payload = response?.data || response || {}
+      const rawCollections =
+        payload?.items ||
+        payload?.collections ||
+        payload?.results ||
+        (Array.isArray(payload) ? payload : [])
+
+      const nextCollections = []
+      if (Array.isArray(rawCollections)) {
+        rawCollections.forEach((c) => {
+          const name = String(c?.name || c?.title || '').trim()
+          const id = c?.id || c?._id || c?.collection_id
+          if (name && id) {
+            const color = c?.color || getCollectionColor(name, DEFAULT_COLLECTION_COLOR)
+            nextCollections.push({ id, name, title: name, color })
+          }
+        })
+      }
+
+      setCollections(nextCollections)
+    } catch {
+      setCollections([])
+    }
+  }
+
+  useEffect(() => {
+    loadCollections()
   }, [])
 
   useEffect(() => {
-    let isMounted = true
-
-    const loadCollectionOptions = async () => {
-      const token = localStorage.getItem('accessToken')
-      if (!token) {
-        if (isMounted) {
-          setCollectionOptions([DEFAULT_SUMMARY_COLLECTION])
-          setCollectionMetadata({})
-        }
-        return
-      }
-
-      try {
-        const response = await collectionsApi.list({ page: 1, limit: 100 })
-        const payload = response?.data || response || {}
-        const rawCollections =
-          payload?.items ||
-          payload?.collections ||
-          payload?.results ||
-          (Array.isArray(payload) ? payload : [])
-
-        const nextOptions = [DEFAULT_SUMMARY_COLLECTION]
-        const nextMetadata = {}
-
-        if (Array.isArray(rawCollections)) {
-          rawCollections.forEach((collection) => {
-            const name = String(collection?.name || collection?.title || collection?.collection_name || '').trim()
-            if (!name) return
-            if (!nextOptions.includes(name)) nextOptions.push(name)
-            nextMetadata[name] = {
-              id: collection?.id || collection?._id || collection?.collection_id || collection?.collectionId || null,
-              color: getCollectionColor(name, DEFAULT_COLLECTION_COLOR),
-            }
-          })
-        }
-
-        const localColors = getSavedCollectionColors()
-        Object.entries(localColors).forEach(([name, color]) => {
-          if (name && !nextOptions.includes(name)) nextOptions.push(name)
-        })
-
-        if (isMounted) {
-          setCollectionOptions(nextOptions)
-          setCollectionMetadata(nextMetadata)
-          const nextSelectedName = (saveCollectionName || DEFAULT_SUMMARY_COLLECTION)
-          const nextCollectionId = nextSelectedName && nextSelectedName !== DEFAULT_SUMMARY_COLLECTION
-            ? nextMetadata[nextSelectedName]?.id || ''
-            : ''
-          setSaveCollectionName((current) => (current && nextOptions.includes(current) ? current : ''))
-          setSelectedCollectionId(nextCollectionId)
-        }
-      } catch {
-        if (isMounted) {
-          const localCollections = Object.keys(getSavedCollections()).filter(Boolean)
-          const nextOptions = [DEFAULT_SUMMARY_COLLECTION, ...localCollections]
-          setCollectionOptions(nextOptions)
-          setCollectionMetadata({})
-          setSaveCollectionName((current) => (current && nextOptions.includes(current) ? current : ''))
-        }
+    const handleClickOutside = (event) => {
+      if (saveContainerRef.current && !saveContainerRef.current.contains(event.target)) {
+        setSaveMenuOpen(false)
+        setIsCreatingCollection(false)
       }
     }
 
-    loadCollectionOptions()
+    if (saveMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
     return () => {
-      isMounted = false
+      document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [])
+  }, [saveMenuOpen])
 
-  const handleSaveSummaryToCollection = async (targetCollectionId = selectedCollectionId) => {
-    const summaryIdToUse = currentSummaryId || lastSummaryId
-
-    if (!summaryIdToUse) {
-      setErrorMessage(lang === 'vi' ? 'Không tìm thấy bài tóm tắt để lưu.' : 'No summary found to save.')
+  const handleCreateCollection = async () => {
+    const trimmed = createTitle.trim()
+    if (!trimmed) {
+      setCreateError(lang === 'vi' ? 'Vui lòng nhập tên bộ sưu tập.' : 'Please enter a collection title.')
       return
     }
 
-    if (!targetCollectionId) {
-      setErrorMessage(lang === 'vi' ? 'Vui lòng chọn Collection hợp lệ.' : 'Please select a valid collection.')
+    const exists = collections.some(
+      (c) => String(c?.name || c?.title || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exists) {
+      setCreateError(lang === 'vi' ? 'Tên bộ sưu tập đã tồn tại.' : 'Collection title already exists.')
       return
     }
+
+    setIsSubmittingCollection(true)
+    setCreateError('')
 
     try {
-      await historyApi.update(summaryIdToUse, {
-        collection_id: targetCollectionId,
+      const response = await collectionsApi.create({
+        name: trimmed,
+        title: trimmed,
+        color: createColor,
       })
+
+      const payload = response?.data || response || {}
+      const newId = payload?.id || payload?._id || payload?.collection_id || `col-${Date.now()}`
+      const newCollection = {
+        id: newId,
+        name: trimmed,
+        title: trimmed,
+        color: createColor,
+      }
+
+      const localColors = getSavedCollectionColors()
+      localColors[trimmed] = createColor
+      persistSavedCollectionColors(localColors)
+
+      setCollections((prev) => [...prev, newCollection])
+      setSelectedCollectionId(newId)
+      setSelectedCollectionName(trimmed)
+      setSelectedCollectionColor(createColor)
+
+      setCreateTitle('')
+      setCreateError('')
+      setIsCreatingCollection(false)
+      setSaveMenuOpen(false)
 
       setSuccessMessage(
         lang === 'vi'
-          ? 'Đã lưu tóm tắt vào bộ sưu tập.'
-          : 'Saved the summary to the selected collection.',
+          ? `Đã tạo và chọn bộ sưu tập "${trimmed}".`
+          : `Created and selected collection "${trimmed}".`,
       )
-      setSaveMenuOpen(false)
-      window.dispatchEvent(new CustomEvent('history:updated'))
       window.setTimeout(() => setSuccessMessage(''), 3000)
-    } catch (error) {
-      setErrorMessage(error?.message || (lang === 'vi' ? 'Lỗi khi lưu vào bộ sưu tập.' : 'Unable to save to the collection.'))
+    } catch (err) {
+      setCreateError(err?.message || (lang === 'vi' ? 'Không thể tạo bộ sưu tập.' : 'Failed to create collection.'))
+    } finally {
+      setIsSubmittingCollection(false)
     }
   }
 
-  const openCollectionEditor = (name = '') => {
-    const normalized = String(name || '').trim()
-    const editableName = normalized || DEFAULT_SUMMARY_COLLECTION
-    setEditingCollectionOriginal(normalized || DEFAULT_SUMMARY_COLLECTION)
-    setEditingCollectionName(editableName)
-    setEditingCollectionColor(getCollectionColor(editableName, DEFAULT_COLLECTION_COLOR))
-  }
-
-  const handleUpdateCollectionSettings = async () => {
-    const nextName = editingCollectionName.trim()
-    if (!nextName) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
-      return
-    }
-
-    const previousName = editingCollectionOriginal || DEFAULT_SUMMARY_COLLECTION
-    const safePreviousName = previousName === DEFAULT_SUMMARY_COLLECTION ? DEFAULT_SUMMARY_COLLECTION : previousName
-    const normalizedName = nextName.replace(/\s+/g, ' ').trim()
-
-    const hasDuplicateName = collectionOptions.some(
-      (name) => name.toLowerCase() === normalizedName.toLowerCase() && name !== safePreviousName,
-    )
-    if (hasDuplicateName) {
-      setCollectionValidationError(
-        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
-      )
-      return
-    }
-
-    setCollectionValidationError('')
-
-    if (normalizedName !== safePreviousName && safePreviousName !== DEFAULT_SUMMARY_COLLECTION) {
-      const metadata = collectionMetadata[safePreviousName]
-      if (metadata?.id) {
-        try {
-          await collectionsApi.update(metadata.id, { name: normalizedName, title: normalizedName, color: editingCollectionColor })
-        } catch {
-          // Keep the local fallback for the rename when the API is unavailable.
-        }
-      }
-    }
-
-    const storedColors = getSavedCollectionColors()
-    if (safePreviousName && safePreviousName !== DEFAULT_SUMMARY_COLLECTION && safePreviousName !== normalizedName) {
-      delete storedColors[safePreviousName]
-    }
-    storedColors[normalizedName] = editingCollectionColor
-    persistSavedCollectionColors(storedColors)
-
-    if (safePreviousName !== DEFAULT_SUMMARY_COLLECTION) {
-      const savedMap = getSavedCollections()
-      const previousItems = savedMap[safePreviousName] || []
-      if (savedMap[safePreviousName]) delete savedMap[safePreviousName]
-      if (normalizedName !== previousName) {
-        savedMap[normalizedName] = previousItems
-      }
-      persistSavedCollections(savedMap)
-    }
-
-    setCollectionOptions((current) => {
-      const withoutPrevious = current.filter((name) => name !== safePreviousName)
-      return [...new Set([...withoutPrevious, normalizedName])]
-    })
-    setCollectionMetadata((current) => {
-      const next = { ...current }
-      if (safePreviousName !== DEFAULT_SUMMARY_COLLECTION && safePreviousName !== normalizedName) {
-        delete next[safePreviousName]
-      }
-      next[normalizedName] = {
-        id: current[safePreviousName]?.id || current[normalizedName]?.id || null,
-        color: editingCollectionColor,
-      }
-      return next
-    })
-    if (saveCollectionName === safePreviousName) {
-      setSaveCollectionName(normalizedName)
-    }
-    setEditingCollectionName('')
-    setEditingCollectionOriginal('')
-    setEditingCollectionColor(DEFAULT_COLLECTION_COLOR)
-  }
-
-  const filteredCollectionOptions = collectionOptions.filter((name) => {
-    const target = String(name || '').toLowerCase()
+  const filteredCollections = collections.filter((c) => {
+    const target = String(c?.name || c?.title || '').toLowerCase()
     const query = collectionSearchQuery.trim().toLowerCase()
     return !query || target.includes(query)
   })
-
-  const handleOpenSaveMenu = () => {
-    if (!isProTierUser(userTier)) return
-    if (saveMenuOpen) {
-      setSaveMenuOpen(false)
-      return
-    }
-
-    if (!saveCollectionName) {
-      setSaveCollectionName(DEFAULT_SUMMARY_COLLECTION)
-    }
-
-    const button = saveToggleRef.current?.getBoundingClientRect()
-    if (button) {
-      const modalHeight = 320
-      setMenuPosition({
-        top: Math.max(12, button.top + window.scrollY - modalHeight + 18),
-        left: Math.max(12, button.right + window.scrollX - 220),
-      })
-    }
-    setSaveMenuOpen(true)
-  }
-
-  const handleCreateCollectionQuick = async () => {
-    const nextName = newCollectionName.trim()
-    if (!nextName) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
-      return
-    }
-
-    const normalized = nextName.replace(/\s+/g, ' ').trim()
-    const exists = collectionOptions.some((name) => name.toLowerCase() === normalized.toLowerCase())
-    if (exists) {
-      setCollectionValidationError(
-        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
-      )
-      setSaveCollectionName(normalized)
-      setNewCollectionName('')
-      setCollectionSearchQuery('')
-      return
-    }
-
-    setCollectionValidationError('')
-
-    try {
-      const token = localStorage.getItem('accessToken')
-      if (token) {
-        await collectionsApi.create({ name: normalized, title: normalized })
-      }
-    } catch {
-      // fall back to local-only storage below
-    }
-
-    const nextCollectionMap = getSavedCollections()
-    nextCollectionMap[normalized] = nextCollectionMap[normalized] || []
-    persistSavedCollections(nextCollectionMap)
-    const nextColors = getSavedCollectionColors()
-    nextColors[normalized] = nextColors[normalized] || DEFAULT_COLLECTION_COLOR
-    persistSavedCollectionColors(nextColors)
-    setCollectionOptions((current) => (current.includes(normalized) ? current : [...current, normalized]))
-    setSaveCollectionName(normalized)
-    setNewCollectionName('')
-    setCollectionSearchQuery('')
-  }
 
   const deriveDownloadNameFromDisposition = (contentDisposition, fallbackName = 'summary.docx') => {
     if (!contentDisposition) return fallbackName
@@ -949,6 +847,9 @@ function HomePage() {
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
         formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
+        if (selectedCollectionId) {
+          formData.append('collection_id', selectedCollectionId)
+        }
 
         const response = await summarizeApi.file(formData)
         const contentType = String(response?.contentType || '').toLowerCase()
@@ -1022,13 +923,17 @@ function HomePage() {
       }
 
       const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
-      const response = await summarizeApi.text({
+      const textPayload = {
         text: inputText,
         mode,
         output_format: outputFormat,
         summary_length_ratio: selectedSummaryLength,
-        collection_id: selectedCollectionId || null,
-      })
+      }
+      if (selectedCollectionId) {
+        textPayload.collection_id = selectedCollectionId
+      }
+
+      const response = await summarizeApi.text(textPayload)
       const nextSummary = response?.data?.summary || ''
       const directSummaryId = extractSummaryId(response)
       setCurrentSummaryId(response?.data?.id || response?.id || directSummaryId || currentSummaryId)
@@ -1604,155 +1509,240 @@ function HomePage() {
             <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
           </button>
 
-          <div className="relative" ref={saveToggleRef}>
+          <div className="relative" ref={saveContainerRef}>
             <button
               type="button"
-              onClick={handleOpenSaveMenu}
-              title={t('output.saveToCollection')}
+              onClick={() => {
+                if (maxFolders <= 0) return
+                setSaveMenuOpen((prev) => !prev)
+                setIsCreatingCollection(false)
+              }}
+              disabled={maxFolders <= 0}
+              title={
+                maxFolders <= 0
+                  ? (lang === 'vi' ? 'Nâng cấp gói để sử dụng bộ sưu tập' : 'Upgrade your plan to use collections')
+                  : (selectedCollectionName
+                      ? (lang === 'vi' ? `Bộ sưu tập: ${selectedCollectionName}` : `Collection: ${selectedCollectionName}`)
+                      : (lang === 'vi' ? 'Chọn bộ sưu tập lưu trữ' : 'Select collection'))
+              }
               aria-label={t('output.saveToCollection')}
-              disabled={!canSaveCurrentOutput() || !isProTierUser(userTier)}
-              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-surface-border bg-surface-raised text-slate-200 shadow-lg shadow-black/10 transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex h-12 items-center gap-2 rounded-2xl border px-3.5 text-sm font-medium shadow-lg shadow-black/10 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                selectedCollectionId
+                  ? 'border-accent/60 bg-accent/15 text-white ring-1 ring-accent/40'
+                  : 'border-surface-border bg-surface-raised text-slate-200 hover:border-accent/60 hover:text-accent'
+              }`}
             >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 4.75h9.5l2.75 2.75V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 4.75v5.5h7v-5.5M9 18.25h6" />
-              </svg>
+              {selectedCollectionId && selectedCollectionColor ? (
+                <span
+                  className="h-3 w-3 rounded-full shrink-0 shadow-sm"
+                  style={{ backgroundColor: selectedCollectionColor }}
+                />
+              ) : (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 4.75h9.5l2.75 2.75V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 4.75v5.5h7v-5.5M9 18.25h6" />
+                </svg>
+              )}
+              <span className="max-w-[120px] truncate text-xs">
+                {selectedCollectionId ? selectedCollectionName : (lang === 'vi' ? 'Lưu' : 'Save')}
+              </span>
             </button>
 
             {saveMenuOpen && (
-              <div
-                className="fixed z-[9999] w-72 rounded-xl border border-surface-border bg-surface-raised p-3 shadow-2xl backdrop-blur-md"
-                style={{
-                  top: `${menuPosition.top}px`,
-                  left: `${menuPosition.left}px`,
-                }}
-              >
-                {editingCollectionName ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        {t('output.chooseCollection')}
-                      </label>
-                      <input
-                        type="text"
-                        value={editingCollectionName}
-                        onChange={(event) => setEditingCollectionName(event.target.value)}
-                        className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
-                      />
+              <div className="absolute bottom-full right-0 mb-3 z-50 flex items-start gap-3">
+                {/* Main Collections Dropdown */}
+                <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === 'vi' ? 'Lưu vào bộ sưu tập' : 'Save to collection'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveMenuOpen(false)
+                        setIsCreatingCollection(false)
+                      }}
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="mb-2.5">
+                    <input
+                      type="text"
+                      value={collectionSearchQuery}
+                      onChange={(e) => setCollectionSearchQuery(e.target.value)}
+                      placeholder={lang === 'vi' ? 'Tìm bộ sưu tập...' : 'Search collection...'}
+                      className="w-full rounded-xl border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                    {/* Default (General History) Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCollectionId('')
+                        setSelectedCollectionName('')
+                        setSelectedCollectionColor('')
+                        setSaveMenuOpen(false)
+                        setIsCreatingCollection(false)
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                        !selectedCollectionId
+                          ? 'bg-accent/15 text-accent ring-1 ring-accent/30 font-medium'
+                          : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-slate-400" />
+                        <span>{lang === 'vi' ? 'Mặc định (Lịch sử chung)' : 'Default (General History)'}</span>
+                      </span>
+                      {!selectedCollectionId && <span className="text-[11px] font-bold">✓</span>}
+                    </button>
+
+                    {/* User's Collections List */}
+                    {filteredCollections.map((col) => {
+                      const isSelected = selectedCollectionId === col.id
+                      return (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCollectionId(col.id)
+                            setSelectedCollectionName(col.name)
+                            setSelectedCollectionColor(col.color)
+                            setSaveMenuOpen(false)
+                            setIsCreatingCollection(false)
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                            isSelected
+                              ? 'bg-accent/15 text-accent ring-1 ring-accent/30 font-medium'
+                              : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: col.color || DEFAULT_COLLECTION_COLOR }}
+                            />
+                            <span className="truncate">{col.name}</span>
+                          </span>
+                          {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                        </button>
+                      )
+                    })}
+
+                    {filteredCollections.length === 0 && collectionSearchQuery && (
+                      <p className="py-2 text-center text-[11px] text-slate-500">
+                        {lang === 'vi' ? 'Không tìm thấy bộ sưu tập' : 'No collections found'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Create New Collection Button */}
+                  <div className="mt-2.5 border-t border-surface-border pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingCollection((prev) => !prev)
+                        setCreateError('')
+                      }}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-accent/40 bg-accent/5 px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/15 hover:border-accent"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      {lang === 'vi' ? 'Tạo thêm bộ sưu tập' : 'Create new collection'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Side Panel: Create Collection Box */}
+                {isCreatingCollection && (
+                  <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {lang === 'vi' ? 'Tạo bộ sưu tập mới' : 'Create New Collection'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingCollection(false)}
+                        className="rounded-lg p-1 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
                     </div>
 
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Color
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {COLLECTION_SWATCHES.map((color) => (
-                          <button
-                            key={color}
-                            type="button"
-                            onClick={() => setEditingCollectionColor(color)}
-                            className={`h-7 w-7 rounded-full border-2 transition ${
-                              editingCollectionColor === color ? 'border-white scale-110' : 'border-transparent'
-                            }`}
-                            style={{ backgroundColor: color }}
-                            aria-label={`Select color ${color}`}
-                          />
-                        ))}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {lang === 'vi' ? 'Tên bộ sưu tập' : 'Title'}
+                        </label>
+                        <input
+                          type="text"
+                          value={createTitle}
+                          onChange={(e) => {
+                            setCreateTitle(e.target.value)
+                            setCreateError('')
+                          }}
+                          placeholder={lang === 'vi' ? 'Nhập tên bộ sưu tập...' : 'Enter collection title...'}
+                          className="w-full rounded-xl border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none"
+                          autoFocus
+                        />
+                        {createError && (
+                          <p className="mt-1 text-[10px] text-red-400">{createError}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {lang === 'vi' ? 'Bảng màu' : 'Color Palette'}
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {COLLECTION_SWATCHES.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setCreateColor(color)}
+                              className={`h-6 w-6 rounded-full border-2 transition transform hover:scale-110 ${
+                                createColor === color ? 'border-white scale-110 shadow-md ring-2 ring-accent' : 'border-transparent'
+                              }`}
+                              style={{ backgroundColor: color }}
+                              aria-label={`Select color ${color}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={isSubmittingCollection}
+                          onClick={handleCreateCollection}
+                          className="flex-1 rounded-xl bg-accent py-2 text-xs font-bold text-surface-base transition hover:bg-accent-hover disabled:opacity-50"
+                        >
+                          {isSubmittingCollection ? '...' : (lang === 'vi' ? 'Tạo' : 'Create')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingCollection(false)
+                            setCreateTitle('')
+                            setCreateError('')
+                          }}
+                          className="flex-1 rounded-xl bg-surface-elevated py-2 text-xs font-medium text-slate-300 transition hover:bg-surface-base"
+                        >
+                          {lang === 'vi' ? 'Hủy' : 'Cancel'}
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleUpdateCollectionSettings}
-                        className="flex-1 rounded-lg bg-accent py-2 text-[10px] font-bold text-surface-base transition hover:bg-accent-hover"
-                      >
-                        {t('subscriptionsForm.update')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingCollectionName('')
-                          setEditingCollectionOriginal('')
-                          setEditingCollectionColor(DEFAULT_COLLECTION_COLOR)
-                        }}
-                        className="flex-1 rounded-lg bg-surface-elevated py-2 text-[10px] font-bold text-slate-200 transition hover:bg-surface-base"
-                      >
-                        {t('subscriptionsForm.cancelEdit')}
-                      </button>
-                    </div>
                   </div>
-                ) : (
-                  <>
-                    <div className="mb-3">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                        {t('output.chooseCollection')}
-                      </span>
-                    </div>
-
-                    <div className="mb-3">
-                      <input
-                        type="text"
-                        value={collectionSearchQuery}
-                        onChange={(event) => setCollectionSearchQuery(event.target.value)}
-                        placeholder={t('output.searchCollection')}
-                        className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-surface-border bg-surface-base/50 p-2">
-                      {filteredCollectionOptions.length === 0 ? (
-                        <p className="text-[11px] text-slate-400">{t('output.noCollections')}</p>
-                      ) : (
-                        filteredCollectionOptions.map((name) => (
-                          <button
-                            key={name}
-                            type="button"
-                            onClick={async () => {
-                              const nextCollectionId = name === DEFAULT_SUMMARY_COLLECTION ? '' : collectionMetadata[name]?.id || ''
-                              const summaryIdToUse = currentSummaryId || lastSummaryId
-
-                              setSaveCollectionName(name)
-                              setSelectedCollectionId(nextCollectionId)
-
-                              if (!summaryIdToUse) {
-                                setErrorMessage(
-                                  lang === 'vi'
-                                    ? 'Vui lòng tạo hoặc mở một bản tóm tắt trước khi lưu vào collection.'
-                                    : 'Please generate or open a summary before saving to a collection.',
-                                )
-                                return
-                              }
-
-                              if (nextCollectionId) {
-                                await handleSaveSummaryToCollection(nextCollectionId)
-                              } else {
-                                setSuccessMessage(
-                                  lang === 'vi' ? 'Đã chọn Default collection.' : 'Default collection selected.',
-                                )
-                                window.setTimeout(() => setSuccessMessage(''), 1500)
-                              }
-                            }}
-                            className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
-                              (saveCollectionName || DEFAULT_SUMMARY_COLLECTION) === name
-                                ? 'bg-accent/15 text-white ring-1 ring-accent/40'
-                                : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <span
-                                className="inline-block h-2.5 w-2.5 rounded-full"
-                                style={{ backgroundColor: getCollectionColor(name, DEFAULT_COLLECTION_COLOR) }}
-                              />
-                              {name}
-                            </span>
-                            {(saveCollectionName || DEFAULT_SUMMARY_COLLECTION) === name && <span className="text-[10px]">✓</span>}
-                          </button>
-                        ))
-                      )}
-                    </div>
-
-                  </>
                 )}
               </div>
             )}
