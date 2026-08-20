@@ -1919,6 +1919,11 @@ function HomePage() {
                         {feedbackCriteria.length > 0 ? (
                           feedbackCriteria.map((criteria) => {
                             const isSelected = feedbackSelectedTags.includes(criteria.code)
+                            const translatedReason = t(`feedback.reasons.${criteria.code}`)
+                            const displayLabel =
+                              translatedReason && translatedReason !== `feedback.reasons.${criteria.code}`
+                                ? translatedReason
+                                : criteria.label
                             return (
                               <button
                                 key={criteria.code}
@@ -1930,7 +1935,7 @@ function HomePage() {
                                     : 'border-surface-border bg-surface-base text-slate-300 hover:border-accent/50 '
                                 }`}
                               >
-                                {criteria.label}
+                                {displayLabel}
                               </button>
                             )
                           })
