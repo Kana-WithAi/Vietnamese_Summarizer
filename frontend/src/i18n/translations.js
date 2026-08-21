@@ -141,6 +141,11 @@ export const translations = {
         helpful_features: 'Very practical and useful features',
         smooth_workflow: 'Seamless and wonderful workflow',
       },
+      targetTypes: {
+        system: 'System',
+        summary: 'Summary',
+        ocr: 'OCR',
+      },
     },
     actions: {
       summarize: 'Summarize',
@@ -711,6 +716,11 @@ export const translations = {
         intuitive_ui: 'Giao diện hiện đại, trực quan, dễ dùng',
         helpful_features: 'Tính năng rất hữu ích và thực tế',
         smooth_workflow: 'Luồng làm việc liền mạch, tuyệt vời',
+      },
+      targetTypes: {
+        system: 'Hệ thống',
+        summary: 'Tóm tắt',
+        ocr: 'OCR',
       },
     },
     actions: {

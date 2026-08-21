@@ -134,6 +134,12 @@ function FeedbackPublicPage() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filteredItems.map((item, index) => {
             const rating = Number(item?.rating ?? item?.score ?? 0)
+            const rawTargetType = String(item?.target_type || 'summary').toLowerCase()
+            const translatedTargetType = t(`feedback.targetTypes.${rawTargetType}`)
+            const displayTargetType = translatedTargetType && translatedTargetType !== `feedback.targetTypes.${rawTargetType}`
+              ? translatedTargetType
+              : rawTargetType.toUpperCase()
+
             const tags = Array.isArray(item?.tags)
               ? item.tags
               : item?.tag
@@ -147,7 +153,7 @@ function FeedbackPublicPage() {
               <article key={item?.id || item?._id || `${item?.rating || 'review'}-${index}`} className="rounded-3xl border border-surface-border bg-surface-raised p-5 shadow-lg shadow-black/10">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{item?.target_type || 'summary'}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{displayTargetType}</p>
                     <h2 className="mt-2 text-lg font-semibold text-white">{item?.user_name || item?.userName || (lang === 'vi' ? 'Người dùng' : 'User')}</h2>
                   </div>
                   <StarRating value={rating} />
@@ -155,11 +161,21 @@ function FeedbackPublicPage() {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {tags.length > 0 ? (
-                    tags.map((tag, tagIndex) => (
-                      <span key={`${tag}-${tagIndex}`} className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-300">
-                        {typeof tag === 'string' ? tag : tag?.label || tag?.name || 'Tag'}
-                      </span>
-                    ))
+                    tags.map((tag, tagIndex) => {
+                      const tagCode = typeof tag === 'string' ? tag : tag?.code || tag?.id || tag?.label || tag?.name || ''
+                      const translatedTag = tagCode ? t(`feedback.reasons.${tagCode}`) : ''
+                      const displayTag = translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
+                        ? translatedTag
+                        : typeof tag === 'string'
+                          ? tag
+                          : tag?.label || tag?.name || 'Tag'
+
+                      return (
+                        <span key={`${tagCode || tagIndex}-${tagIndex}`} className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-300">
+                          {displayTag}
+                        </span>
+                      )
+                    })
                   ) : (
                     <span className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-400">
                       {lang === 'vi' ? 'Không có tiêu chí' : 'No criteria'}
@@ -196,7 +212,7 @@ function FeedbackPublicPage() {
           {lang === 'vi' ? 'Trước' : 'Previous'}
         </button>
         <span className="flex items-center rounded-lg border border-surface-border bg-surface-raised px-4 py-2 text-sm text-slate-300">
-          Page {page}
+          {lang === 'vi' ? `Trang ${page}` : `Page ${page}`}
         </span>
         <button
           type="button"
