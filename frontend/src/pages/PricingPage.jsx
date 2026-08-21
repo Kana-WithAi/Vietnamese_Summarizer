@@ -20,6 +20,8 @@ function PricingPage() {
     planName: '',
     qrDataUrl: '',
   })
+  const [cancellingPayment, setCancellingPayment] = useState(false)
+  const [cancelModalError, setCancelModalError] = useState('')
 
   const getPlanLocaleKey = (planKey) => {
     if (planKey.includes('free')) return 'free'
@@ -192,6 +194,7 @@ function PricingPage() {
         planName: plan.displayName,
         qrDataUrl, // Đã chứa ảnh VietQR chuẩn
       })
+      setCancelModalError('')
     } catch (error) {
       const message = String(error?.message || '')
       const isBanned = /banned/i.test(message)
@@ -222,6 +225,30 @@ function PricingPage() {
       planName: '',
       qrDataUrl: '',
     })
+    setCancellingPayment(false)
+    setCancelModalError('')
+  }
+
+  const handleCancelPaymentModal = async () => {
+    if (!paymentModal.orderCode) {
+      closePaymentModal()
+      return
+    }
+
+    setCancellingPayment(true)
+    setCancelModalError('')
+
+    try {
+      await paymentsApi.cancel(paymentModal.orderCode)
+      closePaymentModal()
+    } catch (error) {
+      setCancelModalError(
+        error?.message ||
+          (lang === 'vi' ? 'Không thể hủy đơn thanh toán.' : 'Unable to cancel payment transaction.'),
+      )
+    } finally {
+      setCancellingPayment(false)
+    }
   }
 
   return (
@@ -292,6 +319,12 @@ function PricingPage() {
                   )}
                 </div>
 
+                {cancelModalError && (
+                  <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                    {cancelModalError}
+                  </p>
+                )}
+
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                   {paymentModal.checkoutUrl && (
                     <a
@@ -306,10 +339,21 @@ function PricingPage() {
                       </svg>
                     </a>
                   )}
+                  {paymentModal.orderCode && (
+                    <button
+                      type="button"
+                      onClick={handleCancelPaymentModal}
+                      disabled={cancellingPayment}
+                      className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {cancellingPayment ? t('pricingPage.modal.cancellingPayment') : t('pricingPage.modal.cancelPayment')}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={closePaymentModal}
-                    className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
+                    disabled={cancellingPayment}
+                    className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {t('pricingPage.modal.close')}
                   </button>

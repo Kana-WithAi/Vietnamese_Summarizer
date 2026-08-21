@@ -389,6 +389,7 @@ export const sessionsApi = {
 
 export const paymentsApi = {
   create: (payload) => request('/payments/create', { method: 'POST', body: payload, auth: true }),
+  cancel: (orderCode) => request(`/payments/${orderCode}/cancel`, { method: 'POST', auth: true }),
   webhook: (payload) => request('/payments/webhook', { method: 'POST', body: payload }),
   status: (orderCode) => request(`/payments/status/${orderCode}`, { auth: true }),
   myTransactions: (params = {}) => {
