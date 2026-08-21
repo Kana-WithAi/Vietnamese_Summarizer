@@ -1191,10 +1191,11 @@ function DashboardPage() {
         <p className="text-sm text-slate-400">{lang === 'vi' ? 'Đang tải người dùng...' : 'Loading users...'}</p>
       ) : (
         <div className="overflow-hidden rounded-3xl border border-surface-border">
-          <div className="grid grid-cols-[1.3fr_1.8fr_1fr_1fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+          <div className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
             <span>{t('dashboard.userName')}</span>
             <span>{t('dashboard.userEmail')}</span>
             <span>{t('dashboard.userStatus')}</span>
+            <span>{t('dashboard.banReason')}</span>
             <span>{t('dashboard.action')}</span>
           </div>
           <div className="divide-y divide-surface-border bg-surface-raised/30">
@@ -1204,12 +1205,16 @@ function DashboardPage() {
               users.map((user, index) => {
                 const status = String(user?.status || '').toLowerCase()
                 const isBanned = status === 'banned' || status === 'suspended'
+                const banReason = user?.ban_reason || user?.banReason || user?.reason || '-'
                 return (
-                  <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.3fr_1.8fr_1fr_1fr] items-center gap-4 px-4 py-3 text-sm">
+                  <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
                     <span className="truncate text-white">{user?.full_name || user?.fullName || user?.name || '-'}</span>
                     <span className="truncate text-slate-300">{user?.email || '-'}</span>
                     <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
                       {user?.status || '-'}
+                    </span>
+                    <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
+                      {banReason}
                     </span>
                     <button
                       type="button"

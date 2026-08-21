@@ -175,15 +175,27 @@ function PricingPage() {
         throw new Error(t('pricingPage.errors.noCheckoutUrl'))
       }
 
-      const qrDataUrl = await QRCode.toDataURL(String(checkoutUrl), {
-        errorCorrectionLevel: 'M',
-        margin: 1,
-        width: 360,
-        color: {
-          dark: '#0f172a',
-          light: '#ffffff',
-        },
-      })
+      const qrCodeString =
+        payload?.qr_code ||
+        payload?.qrCode ||
+        payload?.qr_data ||
+        payload?.data?.qr_code ||
+        payload?.data?.qrCode ||
+        payload?.data?.qr_data
+
+      const qrTarget = qrCodeString || checkoutUrl
+
+      const qrDataUrl = qrTarget.startsWith('data:image/')
+        ? qrTarget
+        : await QRCode.toDataURL(String(qrTarget), {
+            errorCorrectionLevel: 'M',
+            margin: 1,
+            width: 360,
+            color: {
+              dark: '#0f172a',
+              light: '#ffffff',
+            },
+          })
 
       setPaymentModal({
         open: true,
@@ -293,7 +305,20 @@ function PricingPage() {
                   )}
                 </div>
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  {paymentModal.checkoutUrl && (
+                    <a
+                      href={paymentModal.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-surface-border bg-surface-elevated px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-surface-border hover:text-white"
+                    >
+                      <span>{t('pricingPage.modal.openCheckout')}</span>
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
                   <button
                     type="button"
                     onClick={closePaymentModal}
