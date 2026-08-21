@@ -9,7 +9,7 @@ export default defineConfig({
     open: true,
     proxy: {
       '/api': {
-        target: 'https:datn.yviand.com',
+        target: 'https://datn.yviand.com',
         changeOrigin: true,
         secure: false,
       },

@@ -1,12 +1,41 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { feedbacksApi, historyApi, summarizeApi } from '../utils/api'
+import { collectionsApi, feedbacksApi, historyApi, ocrApi, subscriptionsApi, summarizeApi } from '../utils/api'
+import OcrOutputBox from '../components/OcrOutputBox'
+import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
-import { jsPDF } from 'jspdf'
+import { Document, Font, Page, StyleSheet, Text, pdf } from '@react-pdf/renderer'
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from 'docx'
+
+Font.register({
+  family: 'Noto Sans Vietnamese',
+  src: 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
+})
 
 const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
+const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
+const SUMMARY_COLLECTION_COLOR_STORAGE_KEY = 'vietnamese-summarizer-collection-colors'
+const DEFAULT_SUMMARY_COLLECTION = 'Default'
+const DEFAULT_COLLECTION_COLOR = '#7c3aed'
+const COLLECTION_SWATCHES = ['#7c3aed', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#f472b6', '#a78bfa', '#f97316']
+
+function getCollectionColor(name, fallback = DEFAULT_COLLECTION_COLOR) {
+  const raw = localStorage.getItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY)
+  if (!raw) return fallback
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      const color = String(parsed[name] || '').trim()
+      if (color) return color
+    }
+  } catch {
+    // Ignore invalid local history metadata and fall back to default color.
+  }
+
+  return fallback
+}
 
 function extractSummaryId(response) {
   const data = response?.data || response || {}
@@ -170,8 +199,8 @@ function getFileUploadErrorMessage(error, t, lang) {
 
   if (status === 400 || code === 'UNSUPPORTED_FILE') {
     return lang === 'vi'
-      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .docx hoặc .txt.'
-      : 'Unsupported file type. Please upload a .pdf, .docx, or .txt file.'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .doc, .docx, .txt, .png, .jpg hoặc .jpeg.'
+      : 'Unsupported file type. Please upload a .pdf, .doc, .docx, .txt, .png, .jpg, or .jpeg file.'
   }
 
   if (code === 'VALIDATION_ERROR') {
@@ -278,16 +307,38 @@ function HomePage() {
   const [downloadFormat, setDownloadFormat] = useState('txt')
   const [downloadName, setDownloadName] = useState('summary')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false)
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false)
+  const [createTitle, setCreateTitle] = useState('')
+  const [createColor, setCreateColor] = useState(DEFAULT_COLLECTION_COLOR)
+  const [createError, setCreateError] = useState('')
+  const [isSubmittingCollection, setIsSubmittingCollection] = useState(false)
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
+  const [selectedCollectionName, setSelectedCollectionName] = useState('')
+  const [selectedCollectionColor, setSelectedCollectionColor] = useState('')
+  const [collections, setCollections] = useState([])
+  const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
+  const [maxFolders, setMaxFolders] = useState(0)
+  const [userTier, setUserTier] = useState('free')
+  const [currentSummaryId, setCurrentSummaryId] = useState('')
+  const saveContainerRef = useRef(null)
   const downloadToggleRef = useRef(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
-  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
-  const [feedbackRating, setFeedbackRating] = useState('dislike')
-  const [feedbackReason, setFeedbackReason] = useState('missing_info')
+  const [feedbackRating, setFeedbackRating] = useState(0)
+  const [feedbackCriteria, setFeedbackCriteria] = useState([])
+  const [feedbackSelectedTag, setFeedbackSelectedTag] = useState('')
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
   const [feedbackSubmitError, setFeedbackSubmitError] = useState('')
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
+  const [feedbackWizardStep, setFeedbackWizardStep] = useState('stars')
+  const [feedbackStarMenuOpen, setFeedbackStarMenuOpen] = useState(false)
+  const [feedbackCriteriaLoading, setFeedbackCriteriaLoading] = useState(false)
+  const [feedbackTargetType, setFeedbackTargetType] = useState('summary')
   const [lastSummaryId, setLastSummaryId] = useState('')
   const [selectedUploadFile, setSelectedUploadFile] = useState(null)
+  const [ocrBlocks, setOcrBlocks] = useState([])
+  const [ocrData, setOcrData] = useState(null)
 
   useEffect(() => {
     let clearMessageTimer = null
@@ -307,7 +358,7 @@ function HomePage() {
       setMode(nextSummaryText ? 'summary' : 'extract')
       setErrorMessage('')
       setFeedbackSubmitError('')
-      setIsFeedbackOpen(false)
+      setFeedbackModalOpen(false)
       setSuccessMessage(lang === 'vi' ? 'Đã tải nội dung từ lịch sử.' : 'Loaded content from history.')
 
       if (clearMessageTimer) {
@@ -357,14 +408,12 @@ function HomePage() {
     setErrorMessage('')
     setSuccessMessage('')
     setSelectedUploadFile(file)
-    setInputText(`[FILE] ${file.name}`)
+    setInputText('')
     setSummary('')
+    setOcrBlocks([])
+    setOcrData(null)
     setLastSummaryId('')
-    setSuccessMessage(
-      lang === 'vi'
-        ? 'Đã chọn tệp. Nhấn Tóm tắt để xử lý tệp.'
-        : 'File selected. Click Summarize to process the file.',
-    )
+    setSuccessMessage(t('ocr.fileSelected'))
     window.setTimeout(() => setSuccessMessage(''), 3000)
     event.target.value = ''
   }
@@ -372,11 +421,240 @@ function HomePage() {
   const handleClear = () => {
     setInputText('')
     setSummary('')
+    setOcrBlocks([])
+    setOcrData(null)
     setLastSummaryId('')
     setSelectedUploadFile(null)
     setErrorMessage('')
     setSuccessMessage('')
   }
+
+  const getSavedCollections = () => {
+    try {
+      const raw = localStorage.getItem(SUMMARY_COLLECTION_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const persistSavedCollections = (collections) => {
+    localStorage.setItem(SUMMARY_COLLECTION_STORAGE_KEY, JSON.stringify(collections))
+  }
+
+  const getSavedCollectionColors = () => {
+    try {
+      const raw = localStorage.getItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const persistSavedCollectionColors = (colors) => {
+    localStorage.setItem(SUMMARY_COLLECTION_COLOR_STORAGE_KEY, JSON.stringify(colors))
+  }
+
+  const isProTierUser = (tierValue = userTier) => {
+    const normalized = String(tierValue || '').trim().toLowerCase()
+    if (!normalized) return false
+    return ['pro', 'premium', 'max', 'business', 'elite', 'vip', 'team'].some((token) => normalized.includes(token))
+  }
+
+  const canSaveCurrentOutput = () => {
+    const textFromSummary = String(summary || '').trim()
+    if (textFromSummary) return true
+
+    const textFromOcr = String(
+      ocrBlocks.join('\n\n') || extractOcrTextFromPayload(ocrData?.payload || ocrData) || '',
+    ).trim()
+
+    return Boolean(textFromOcr)
+  }
+
+  useEffect(() => {
+    const loadUserSubscription = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (!token) {
+        setUserTier('free')
+        setMaxFolders(0)
+        return
+      }
+
+      try {
+        const [subResponse, plansResponse] = await Promise.all([
+          subscriptionsApi.me().catch(() => null),
+          subscriptionsApi.plans().catch(() => null),
+        ])
+
+        const subData = subResponse?.data || subResponse || {}
+        const planObj = subData?.plan || subData?.subscription?.plan || subData?.subscription || {}
+
+        let folders =
+          subData?.max_folders ??
+          subData?.maxFolders ??
+          planObj?.max_folders ??
+          planObj?.maxFolders ??
+          null
+
+        if (folders === null && plansResponse) {
+          const plansList = plansResponse?.data?.plans || plansResponse?.data || plansResponse || []
+          const currentPlanId = subData?.plan_id || subData?.planId || planObj?.id || planObj?.plan_id
+          const currentTier = String(subData?.tier || planObj?.tier || planObj?.name || 'free').toLowerCase()
+
+          if (Array.isArray(plansList)) {
+            const matched = plansList.find((p) =>
+              (currentPlanId && (p?.id === currentPlanId || p?.plan_id === currentPlanId)) ||
+              (String(p?.name || p?.tier || '').toLowerCase() === currentTier),
+            )
+            if (matched) {
+              folders = matched?.max_folders ?? matched?.maxFolders ?? null
+            }
+          }
+        }
+
+        const tier =
+          subData?.tier ||
+          subData?.tier_name ||
+          planObj?.tier ||
+          planObj?.name ||
+          'free'
+
+        setUserTier(String(tier).toLowerCase())
+        setMaxFolders(Number(folders ?? 0))
+      } catch {
+        setUserTier('free')
+        setMaxFolders(0)
+      }
+    }
+
+    loadUserSubscription()
+  }, [])
+
+  const loadCollections = async () => {
+    const token = localStorage.getItem('accessToken')
+    if (!token) {
+      setCollections([])
+      return
+    }
+
+    try {
+      const response = await collectionsApi.list({ page: 1, limit: 100 })
+      const payload = response?.data || response || {}
+      const rawCollections =
+        payload?.items ||
+        payload?.collections ||
+        payload?.results ||
+        (Array.isArray(payload) ? payload : [])
+
+      const nextCollections = []
+      if (Array.isArray(rawCollections)) {
+        rawCollections.forEach((c) => {
+          const name = String(c?.name || c?.title || '').trim()
+          const id = c?.id || c?._id || c?.collection_id
+          if (name && id) {
+            const color = c?.color || getCollectionColor(name, DEFAULT_COLLECTION_COLOR)
+            nextCollections.push({ id, name, title: name, color })
+          }
+        })
+      }
+
+      setCollections(nextCollections)
+    } catch {
+      setCollections([])
+    }
+  }
+
+  useEffect(() => {
+    loadCollections()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (saveContainerRef.current && !saveContainerRef.current.contains(event.target)) {
+        setSaveMenuOpen(false)
+        setIsCreatingCollection(false)
+      }
+    }
+
+    if (saveMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [saveMenuOpen])
+
+  const handleCreateCollection = async () => {
+    const trimmed = createTitle.trim()
+    if (!trimmed) {
+      setCreateError(lang === 'vi' ? 'Vui lòng nhập tên bộ sưu tập.' : 'Please enter a collection title.')
+      return
+    }
+
+    const exists = collections.some(
+      (c) => String(c?.name || c?.title || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exists) {
+      setCreateError(lang === 'vi' ? 'Tên bộ sưu tập đã tồn tại.' : 'Collection title already exists.')
+      return
+    }
+
+    setIsSubmittingCollection(true)
+    setCreateError('')
+
+    try {
+      const response = await collectionsApi.create({
+        name: trimmed,
+        title: trimmed,
+        color: createColor,
+      })
+
+      const payload = response?.data || response || {}
+      const newId = payload?.id || payload?._id || payload?.collection_id || `col-${Date.now()}`
+      const newCollection = {
+        id: newId,
+        name: trimmed,
+        title: trimmed,
+        color: createColor,
+      }
+
+      const localColors = getSavedCollectionColors()
+      localColors[trimmed] = createColor
+      persistSavedCollectionColors(localColors)
+
+      setCollections((prev) => [...prev, newCollection])
+      setSelectedCollectionId(newId)
+      setSelectedCollectionName(trimmed)
+      setSelectedCollectionColor(createColor)
+
+      setCreateTitle('')
+      setCreateError('')
+      setIsCreatingCollection(false)
+      setSaveMenuOpen(false)
+
+      setSuccessMessage(
+        lang === 'vi'
+          ? `Đã tạo và chọn bộ sưu tập "${trimmed}".`
+          : `Created and selected collection "${trimmed}".`,
+      )
+      window.setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err) {
+      setCreateError(err?.message || (lang === 'vi' ? 'Không thể tạo bộ sưu tập.' : 'Failed to create collection.'))
+    } finally {
+      setIsSubmittingCollection(false)
+    }
+  }
+
+  const filteredCollections = collections.filter((c) => {
+    const target = String(c?.name || c?.title || '').toLowerCase()
+    const query = collectionSearchQuery.trim().toLowerCase()
+    return !query || target.includes(query)
+  })
 
   const deriveDownloadNameFromDisposition = (contentDisposition, fallbackName = 'summary.docx') => {
     if (!contentDisposition) return fallbackName
@@ -417,15 +695,128 @@ function HomePage() {
     return { summaryText, extractedText }
   }
 
+  const extractOcrTextFromPayload = (payload) => {
+    const extractTextCandidate = (value, seen = new WeakSet()) => {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        return trimmed
+      }
+
+      if (Array.isArray(value)) {
+        const collected = []
+        for (const item of value) {
+          const nested = extractTextCandidate(item, seen)
+          if (nested) collected.push(nested)
+        }
+        return collected.join('\n').trim()
+      }
+
+      if (value && typeof value === 'object') {
+        if (seen.has(value)) return ''
+        seen.add(value)
+
+        const entries = Object.entries(value)
+        const priorityKeys = ['text', 'content', 'output_text', 'outputText', 'extracted_text', 'extractedText', 'ocr_text', 'ocrText', 'raw_text', 'rawText']
+
+        for (const key of priorityKeys) {
+          const directValue = value[key]
+          if (directValue !== undefined && directValue !== null) {
+            const result = extractTextCandidate(directValue, seen)
+            if (result) return result
+          }
+        }
+
+        for (const [key, nestedValue] of entries) {
+          const normalizedKey = String(key).toLowerCase()
+          if (
+            normalizedKey.includes('text') ||
+            normalizedKey.includes('content') ||
+            normalizedKey.includes('ocr') ||
+            normalizedKey.includes('result') ||
+            normalizedKey.includes('data') ||
+            normalizedKey.includes('page') ||
+            normalizedKey.includes('block') ||
+            normalizedKey.includes('line') ||
+            normalizedKey.includes('paragraph')
+          ) {
+            const result = extractTextCandidate(nestedValue, seen)
+            if (result) return result
+          }
+        }
+      }
+
+      return ''
+    }
+
+    if (payload === null || payload === undefined) return ''
+    return extractTextCandidate(payload).trim()
+  }
+
+  const extractOcrBlocksFromPayload = (payload) => {
+    const visit = (value, seen = new WeakSet(), depth = 0) => {
+      if (!value) return []
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        return trimmed ? [trimmed] : []
+      }
+
+      if (Array.isArray(value)) {
+        const items = []
+        for (const item of value) {
+          items.push(...visit(item, seen, depth + 1))
+        }
+        return items
+      }
+
+      if (typeof value !== 'object') return []
+      if (seen.has(value)) return []
+      seen.add(value)
+
+      const blocks = []
+      const objectEntries = Object.entries(value)
+
+      for (const [key, nestedValue] of objectEntries) {
+        const normalizedKey = String(key).toLowerCase()
+
+        if (
+          ['text', 'content', 'value', 'output_text', 'outputText', 'extracted_text', 'extractedText', 'ocr_text', 'ocrText', 'raw_text', 'rawText'].includes(normalizedKey)
+        ) {
+          const text = typeof nestedValue === 'string' ? nestedValue.trim() : ''
+          if (text) blocks.push(text)
+        }
+
+        if (
+          normalizedKey === 'blocks' ||
+          normalizedKey === 'pages' ||
+          normalizedKey === 'lines' ||
+          normalizedKey === 'paragraphs' ||
+          normalizedKey === 'items' ||
+          normalizedKey === 'results' ||
+          normalizedKey === 'data'
+        ) {
+          blocks.push(...visit(nestedValue, seen, depth + 1))
+        }
+      }
+
+      if (!blocks.length) {
+        for (const nestedValue of Object.values(value)) {
+          blocks.push(...visit(nestedValue, seen, depth + 1))
+        }
+      }
+
+      return blocks.filter((text) => typeof text === 'string' && text.trim()).map((text) => text.trim())
+    }
+
+    const blocks = visit(payload)
+    return blocks.filter((text, index) => text && blocks.indexOf(text) === index)
+  }
+
   const handleSummarize = async () => {
     if (!inputText.trim() && !selectedUploadFile) return
 
     if (mode === 'ocr' && !selectedUploadFile) {
-      setErrorMessage(
-        lang === 'vi'
-          ? 'Chế độ OCR chỉ hoạt động với file tải lên. Vui lòng chọn một tệp PDF, DOCX hoặc TXT.'
-          : 'OCR mode works with uploaded files only. Please choose a PDF, DOCX, or TXT file.',
-      )
+      setErrorMessage(t('ocr.requiresUpload'))
       return
     }
 
@@ -435,10 +826,40 @@ function HomePage() {
 
     try {
       if (selectedUploadFile) {
+        if (mode === 'ocr') {
+          const dimensions = await getFileDimensions(selectedUploadFile)
+          const response = await ocrApi.process(selectedUploadFile, {
+            extract_layout: true,
+            auth: false,
+          })
+
+          const payload = response?.data || response || {}
+          const extractedText = extractOcrTextFromPayload(payload)
+          const ocrBlocks = extractOcrBlocksFromPayload(payload)
+
+          setOcrData({ payload, dimensions })
+
+          if (extractedText || ocrBlocks.length) {
+            setSummary(ocrBlocks.join('\n\n') || extractedText)
+            setOcrBlocks(ocrBlocks.length ? ocrBlocks : [extractedText])
+            setSuccessMessage(t('ocr.success'))
+            window.setTimeout(() => setSuccessMessage(''), 3000)
+            return
+          }
+
+          setSummary('')
+          setOcrData({ payload, dimensions })
+          setErrorMessage(t('ocr.noText'))
+          return
+        }
+
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
         formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
+        if (selectedCollectionId) {
+          formData.append('collection_id', selectedCollectionId)
+        }
 
         const response = await summarizeApi.file(formData)
         const contentType = String(response?.contentType || '').toLowerCase()
@@ -454,27 +875,19 @@ function HomePage() {
             const parsedPayload = JSON.parse(textPayload)
             const { summaryText, extractedText } = extractSummaryTextFromPayload(parsedPayload)
 
-            if (mode === 'extract' || mode === 'ocr') {
+            if (mode === 'extract') {
               if (extractedText) {
-                setInputText(extractedText)
                 setSummary('')
-                setSelectedUploadFile(null)
                 setSuccessMessage(
                   lang === 'vi'
-                    ? mode === 'ocr'
-                      ? 'OCR đã trích xuất văn bản từ tệp thành công.'
-                      : 'Tệp đã được trích xuất thành công.'
-                    : mode === 'ocr'
-                      ? 'OCR extracted the text from the file successfully.'
-                      : 'File text extracted successfully.',
+                    ? 'Tệp đã được trích xuất thành công.'
+                    : 'File text extracted successfully.',
                 )
                 window.setTimeout(() => setSuccessMessage(''), 3000)
                 return
               }
             } else if (summaryText) {
-              setInputText(extractedText || inputText)
               setSummary(summaryText)
-              setSelectedUploadFile(null)
               setSuccessMessage(
                 lang === 'vi'
                   ? 'Tóm tắt tệp thành công.'
@@ -488,16 +901,12 @@ function HomePage() {
           }
         }
 
-        if (mode === 'extract' || mode === 'ocr') {
+        if (mode === 'extract') {
           setSummary('')
           setSuccessMessage(
             lang === 'vi'
-              ? mode === 'ocr'
-                ? 'OCR đã trích xuất văn bản từ tệp.'
-                : 'Đã trích xuất văn bản từ tệp.'
-              : mode === 'ocr'
-                ? 'OCR extracted the text from the file.'
-                : 'The file text has been extracted.',
+              ? 'Đã trích xuất văn bản từ tệp.'
+              : 'The file text has been extracted.',
           )
           window.setTimeout(() => setSuccessMessage(''), 3000)
           return
@@ -524,14 +933,25 @@ function HomePage() {
       }
 
       const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
-      const response = await summarizeApi.text({
+      const textPayload = {
         text: inputText,
-        mode,
-        output_format: outputFormat,
-        summary_length_ratio: selectedSummaryLength,
-      })
-      const nextSummary = response?.data?.summary || ''
+        do_summarize: mode === 'summary',
+        length_type: selectedSummaryLength,
+      }
+      if (selectedCollectionId) {
+        textPayload.collection_id = selectedCollectionId
+      }
+
+      const response = await summarizeApi.text(textPayload)
+      const nextSummary =
+        response?.data?.summary ||
+        response?.data?.text ||
+        response?.data?.extracted_text ||
+        response?.summary ||
+        response?.text ||
+        ''
       const directSummaryId = extractSummaryId(response)
+      setCurrentSummaryId(response?.data?.id || response?.id || directSummaryId || currentSummaryId)
       if (directSummaryId) {
         setLastSummaryId(directSummaryId)
       } else if (nextSummary) {
@@ -565,33 +985,87 @@ function HomePage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const openFeedbackForm = (rating) => {
-    setFeedbackRating(rating)
-    setFeedbackReason('missing_info')
+  const fetchFeedbackCriteria = async (ratingValue, targetType = feedbackTargetType) => {
+    setFeedbackCriteriaLoading(true)
+    setFeedbackSubmitError('')
+
+    try {
+      const response = await feedbacksApi.criteria({ target_type: targetType, rating: ratingValue })
+      const rawCriteria = response?.criteria || response?.data?.criteria || []
+      setFeedbackCriteria(Array.isArray(rawCriteria) ? rawCriteria : [])
+    } catch {
+      setFeedbackCriteria([])
+    } finally {
+      setFeedbackCriteriaLoading(false)
+    }
+  }
+
+  const handleFeedbackRatingSelection = async (ratingValue) => {
+    setFeedbackRating(ratingValue)
+    setFeedbackSelectedTag('')
     setFeedbackText('')
     setFeedbackSubmitError('')
-    setIsFeedbackOpen(true)
+    setFeedbackWizardStep('criteria')
+    await fetchFeedbackCriteria(ratingValue, feedbackTargetType)
+  }
+
+  const openFeedbackForm = (ratingValue = 0, targetType = 'summary') => {
+    setFeedbackTargetType(targetType)
+    setFeedbackModalOpen(true)
+    setFeedbackText('')
+    setFeedbackSelectedTag('')
+    setFeedbackSubmitError('')
+    setFeedbackWizardStep('stars')
+    setFeedbackRating(0)
+    setFeedbackCriteria([])
+    setFeedbackStarMenuOpen(false)
+
+    if (ratingValue > 0) {
+      setFeedbackTargetType(targetType)
+      handleFeedbackRatingSelection(ratingValue)
+    }
+  }
+
+  const openSummaryFeedbackForm = (ratingValue = 0) => {
+    openFeedbackForm(ratingValue, 'summary')
+  }
+
+  const openSystemFeedbackForm = (ratingValue = 0) => {
+    openFeedbackForm(ratingValue, 'system')
   }
 
   const closeFeedbackForm = () => {
-    setIsFeedbackOpen(false)
+    setFeedbackModalOpen(false)
+    setFeedbackStarMenuOpen(false)
+    setFeedbackWizardStep('stars')
+    setFeedbackRating(0)
+    setFeedbackSelectedTag('')
+    setFeedbackText('')
     setFeedbackSubmitError('')
+    setFeedbackCriteria([])
+  }
+
+  const toggleFeedbackTag = (tag) => {
+    setFeedbackSelectedTag((current) => (current === tag ? '' : tag))
   }
 
   const handleSendFeedback = async () => {
-    if (!summary) return
+    const trimmedComment = feedbackText.trim().slice(0, 1000)
 
-    const trimmedComment = feedbackText.trim()
-    const resolvedSummaryId = lastSummaryId || await resolveLatestSummaryId()
-    if (!resolvedSummaryId) {
-      setFeedbackSubmitError(t('feedback.summaryIdRequired'))
+    if (feedbackRating < 1 || feedbackRating > 5) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Số sao đánh giá phải là số nguyên từ 1 đến 5.'
+          : t('feedback.submitFailed'),
+      )
       return
     }
-    if (resolvedSummaryId !== lastSummaryId) {
-      setLastSummaryId(resolvedSummaryId)
-    }
-    if (!trimmedComment) {
-      setFeedbackSubmitError(t('feedback.commentRequired'))
+    if (feedbackRating <= 3 && !feedbackSelectedTag && !trimmedComment) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Vui lòng chọn một lý do đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.'
+          : 'Please select a reason tag or provide a comment for low ratings.',
+      )
       return
     }
 
@@ -599,21 +1073,43 @@ function HomePage() {
     setFeedbackSubmitError('')
 
     try {
-      await feedbacksApi.create({
-        summary_id: resolvedSummaryId,
-        rating: feedbackRating,
-        error_reason: feedbackRating === 'dislike' ? feedbackReason : undefined,
+      const validTargetType = ['summary', 'ocr', 'system'].includes(feedbackTargetType)
+        ? feedbackTargetType
+        : 'summary'
+
+      const payload = {
+        target_type: validTargetType,
+        rating: Number(feedbackRating),
+        tag: feedbackSelectedTag || '',
         comment: trimmedComment,
-      })
+      }
+
+      if (validTargetType === 'summary') {
+        const rawSummaryId = String(lastSummaryId || currentSummaryId || '').trim()
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawSummaryId)
+        if (isUuid) {
+          payload.summary_id = rawSummaryId
+        }
+      }
+
+      await feedbacksApi.create(payload)
 
       closeFeedbackForm()
       setSuccessMessage(t('feedback.submitted'))
       window.setTimeout(() => setSuccessMessage(''), 3000)
     } catch (error) {
+      console.error('Feedback submit error:', error, error?.data)
+      const serverMsg =
+        error?.data?.message ||
+        error?.data?.error ||
+        error?.data?.detail ||
+        (typeof error?.data === 'string' && error.data.length < 300 ? error.data : '') ||
+        error?.message
+
       if (error?.status === 401 || error?.status === 403) {
         setFeedbackSubmitError(t('feedback.authRequired'))
       } else {
-        setFeedbackSubmitError(t('feedback.submitFailed'))
+        setFeedbackSubmitError(serverMsg || t('feedback.submitFailed'))
       }
     } finally {
       setFeedbackSubmitting(false)
@@ -670,15 +1166,31 @@ function HomePage() {
     setDownloadMenuOpen(true)
   }
 
-  const generatePDF = (fileName = 'summary.pdf') => {
+  const generatePDF = async (fileName = 'summary.pdf') => {
     try {
-      const doc = new jsPDF()
-      const margin = 10
-      const pageWidth = doc.internal.pageSize.getWidth() - margin * 2
-      const lines = doc.splitTextToSize(summary, pageWidth)
-      doc.setFontSize(12)
-      doc.text(lines, margin, margin + 5)
-      const blob = doc.output('blob')
+      const styles = StyleSheet.create({
+        page: {
+          padding: 28,
+          paddingTop: 32,
+          backgroundColor: '#ffffff',
+        },
+        content: {
+          fontFamily: 'Noto Sans Vietnamese',
+          fontSize: 12,
+          lineHeight: 1.7,
+          color: '#111827',
+        },
+      })
+
+      const content = summary || ''
+      const blob = await pdf(
+        <Document>
+          <Page size="A4" style={styles.page}>
+            <Text style={styles.content}>{content}</Text>
+          </Page>
+        </Document>
+      ).toBlob()
+
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -814,6 +1326,20 @@ function HomePage() {
             </button>
           </div>
 
+          {selectedUploadFile && (
+            <div className="border-b border-surface-border bg-surface-base/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-2xl border border-surface-border bg-surface-raised p-3 shadow-lg shadow-black/10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-xs font-bold uppercase tracking-[0.2em] text-slate-200">
+                  {String(selectedUploadFile.name || 'FILE').split('.').pop()?.slice(0, 3)?.toUpperCase() || 'FILE'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{t('input.fileLabel')}</div>
+                  <div className="truncate text-sm font-medium text-slate-100">{selectedUploadFile.name}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="relative flex-1">
             <textarea
               value={inputText}
@@ -859,7 +1385,7 @@ function HomePage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.docx,.txt"
+                  accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -885,8 +1411,10 @@ function HomePage() {
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300">
                   {errorMessage}
                 </div>
+              ) : mode === 'ocr' ? (
+                <OcrOutputBox ocrData={ocrData} isLoading={isLoading} t={t} />
               ) : (
-                summary || t('output.placeholder')
+                <div className="whitespace-pre-wrap">{summary || t('output.placeholder')}</div>
               )}
             </div>
           </div>
@@ -897,52 +1425,49 @@ function HomePage() {
               {t('input.sentences')}
             </span>
 
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               {summary && (
-                <>
-                  <span className="hidden text-xs text-slate-400 sm:block">{t('output.rateSummary')}</span>
-                  {/* Thumbs Up Button */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setFeedbackStarMenuOpen(true)}
+                  onMouseLeave={() => setFeedbackStarMenuOpen(false)}
+                >
                   <button
                     type="button"
-                    onClick={() => openFeedbackForm('like')}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-accent"
-                    aria-label={t('output.like')}
+                    onClick={() => openSummaryFeedbackForm()}
+                    className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+                    aria-label={lang === 'vi' ? 'Đánh giá tóm tắt' : 'Summary feedback'}
                   >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M7 10v12" />
-                      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+                    <span>{lang === 'vi' ? 'Đánh giá tóm tắt' : 'Summary feedback'}</span>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 7.5l5 5 5-5" />
                     </svg>
                   </button>
 
-                  {/* Thumbs Down Button */}
-                  <button
-                    type="button"
-                    onClick={() => openFeedbackForm('dislike')}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-red-400"
-                    aria-label={t('output.dislike')}
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M17 14V2" />
-                      <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
-                    </svg>
-                  </button>
-                </>
+                  {feedbackStarMenuOpen && (
+                    <div className="absolute right-0 top-full z-30 mt-2 rounded-xl border border-surface-border bg-surface-raised/95 p-2 shadow-2xl backdrop-blur-md">
+                      <div className="flex items-center gap-1.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => {
+                              setFeedbackTargetType('summary')
+                              handleFeedbackRatingSelection(star)
+                              setFeedbackModalOpen(true)
+                            }}
+                            className="rounded-md p-1 text-slate-600 transition hover:bg-surface-elevated hover:text-yellow-300"
+                            aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                          >
+                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                            </svg>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <ActionButton
                 label={copied ? t('output.copied') : t('output.copy')}
@@ -985,9 +1510,8 @@ function HomePage() {
                     className="rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl backdrop-blur-md"
                   >
                     <div className="space-y-3">
-                      {/* File Name Input */}
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           {t('output.fileName')}
                         </label>
                         <input
@@ -999,9 +1523,8 @@ function HomePage() {
                         />
                       </div>
 
-                      {/* Format Options */}
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           {t('output.format')}
                         </label>
                         <div className="grid grid-cols-2 gap-1.5">
@@ -1022,14 +1545,13 @@ function HomePage() {
                         </div>
                       </div>
 
-                      {/* Download Action */}
                       <button
                         type="button"
                         onClick={() => {
                           handleDownload(downloadFormat, downloadName)
                           setDownloadMenuOpen(false)
                         }}
-                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 hover:bg-accent-hover transition"
+                        className="w-full rounded-lg bg-accent py-2 text-xs font-bold text-surface-base shadow-md shadow-accent/20 transition hover:bg-accent-hover"
                       >
                         {t('output.download')}
                       </button>
@@ -1037,6 +1559,7 @@ function HomePage() {
                   </div>
                 )}
               </div>
+
               <ActionButton label={t('output.speak')} onClick={handleSpeak} disabled={!summary}>
                 <path
                   strokeLinecap="round"
@@ -1056,7 +1579,7 @@ function HomePage() {
 
       {/* Summarize button */}
       <div className="pb-4">
-        <div className="flex justify-center">
+        <div className="flex items-center justify-center gap-3">
           <button
             type="button"
             onClick={handleSummarize}
@@ -1089,6 +1612,245 @@ function HomePage() {
             </span>
             <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition group-hover:translate-x-full duration-700" />
           </button>
+
+          <div className="relative" ref={saveContainerRef}>
+            <button
+              type="button"
+              onClick={() => {
+                if (maxFolders <= 0) return
+                setSaveMenuOpen((prev) => !prev)
+                setIsCreatingCollection(false)
+              }}
+              disabled={maxFolders <= 0}
+              title={
+                maxFolders <= 0
+                  ? (lang === 'vi' ? 'Nâng cấp gói để sử dụng bộ sưu tập' : 'Upgrade your plan to use collections')
+                  : (selectedCollectionName
+                      ? (lang === 'vi' ? `Bộ sưu tập: ${selectedCollectionName}` : `Collection: ${selectedCollectionName}`)
+                      : (lang === 'vi' ? 'Chọn bộ sưu tập lưu trữ' : 'Select collection'))
+              }
+              aria-label={t('output.saveToCollection')}
+              className={`flex h-12 items-center gap-2 rounded-2xl border px-3.5 text-sm font-medium shadow-lg shadow-black/10 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                selectedCollectionId
+                  ? 'border-accent/60 bg-accent/15 text-white ring-1 ring-accent/40'
+                  : 'border-surface-border bg-surface-raised text-slate-200 hover:border-accent/60 hover:text-accent'
+              }`}
+            >
+              {selectedCollectionId && selectedCollectionColor ? (
+                <span
+                  className="h-3 w-3 rounded-full shrink-0 shadow-sm"
+                  style={{ backgroundColor: selectedCollectionColor }}
+                />
+              ) : (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 4.75h9.5l2.75 2.75V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 4.75v5.5h7v-5.5M9 18.25h6" />
+                </svg>
+              )}
+              <span className="max-w-[120px] truncate text-xs">
+                {selectedCollectionId ? selectedCollectionName : (lang === 'vi' ? 'Lưu' : 'Save')}
+              </span>
+            </button>
+
+            {saveMenuOpen && (
+              <div className="absolute bottom-full right-0 mb-3 z-50 flex items-start gap-3">
+                {/* Main Collections Dropdown */}
+                <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === 'vi' ? 'Lưu vào bộ sưu tập' : 'Save to collection'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveMenuOpen(false)
+                        setIsCreatingCollection(false)
+                      }}
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="mb-2.5">
+                    <input
+                      type="text"
+                      value={collectionSearchQuery}
+                      onChange={(e) => setCollectionSearchQuery(e.target.value)}
+                      placeholder={lang === 'vi' ? 'Tìm bộ sưu tập...' : 'Search collection...'}
+                      className="w-full rounded-xl border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                    {/* Default (General History) Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCollectionId('')
+                        setSelectedCollectionName('')
+                        setSelectedCollectionColor('')
+                        setSaveMenuOpen(false)
+                        setIsCreatingCollection(false)
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                        !selectedCollectionId
+                          ? 'bg-accent/15 text-accent ring-1 ring-accent/30 font-medium'
+                          : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-slate-400" />
+                        <span>{lang === 'vi' ? 'Mặc định (Lịch sử chung)' : 'Default (General History)'}</span>
+                      </span>
+                      {!selectedCollectionId && <span className="text-[11px] font-bold">✓</span>}
+                    </button>
+
+                    {/* User's Collections List */}
+                    {filteredCollections.map((col) => {
+                      const isSelected = selectedCollectionId === col.id
+                      return (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCollectionId(col.id)
+                            setSelectedCollectionName(col.name)
+                            setSelectedCollectionColor(col.color)
+                            setSaveMenuOpen(false)
+                            setIsCreatingCollection(false)
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                            isSelected
+                              ? 'bg-accent/15 text-accent ring-1 ring-accent/30 font-medium'
+                              : 'text-slate-300 hover:bg-surface-elevated hover:text-white'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: col.color || DEFAULT_COLLECTION_COLOR }}
+                            />
+                            <span className="truncate">{col.name}</span>
+                          </span>
+                          {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                        </button>
+                      )
+                    })}
+
+                    {filteredCollections.length === 0 && collectionSearchQuery && (
+                      <p className="py-2 text-center text-[11px] text-slate-500">
+                        {lang === 'vi' ? 'Không tìm thấy bộ sưu tập' : 'No collections found'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Create New Collection Button */}
+                  <div className="mt-2.5 border-t border-surface-border pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingCollection((prev) => !prev)
+                        setCreateError('')
+                      }}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-accent/40 bg-accent/5 px-3 py-2 text-xs font-semibold text-accent transition hover:bg-accent/15 hover:border-accent"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      {lang === 'vi' ? 'Tạo thêm bộ sưu tập' : 'Create new collection'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Side Panel: Create Collection Box */}
+                {isCreatingCollection && (
+                  <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {lang === 'vi' ? 'Tạo bộ sưu tập mới' : 'Create New Collection'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingCollection(false)}
+                        className="rounded-lg p-1 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {lang === 'vi' ? 'Tên bộ sưu tập' : 'Title'}
+                        </label>
+                        <input
+                          type="text"
+                          value={createTitle}
+                          onChange={(e) => {
+                            setCreateTitle(e.target.value)
+                            setCreateError('')
+                          }}
+                          placeholder={lang === 'vi' ? 'Nhập tên bộ sưu tập...' : 'Enter collection title...'}
+                          className="w-full rounded-xl border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none"
+                          autoFocus
+                        />
+                        {createError && (
+                          <p className="mt-1 text-[10px] text-red-400">{createError}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {lang === 'vi' ? 'Bảng màu' : 'Color Palette'}
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {COLLECTION_SWATCHES.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setCreateColor(color)}
+                              className={`h-6 w-6 rounded-full border-2 transition transform hover:scale-110 ${
+                                createColor === color ? 'border-white scale-110 shadow-md ring-2 ring-accent' : 'border-transparent'
+                              }`}
+                              style={{ backgroundColor: color }}
+                              aria-label={`Select color ${color}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={isSubmittingCollection}
+                          onClick={handleCreateCollection}
+                          className="flex-1 rounded-xl bg-accent py-2 text-xs font-bold text-surface-base transition hover:bg-accent-hover disabled:opacity-50"
+                        >
+                          {isSubmittingCollection ? '...' : (lang === 'vi' ? 'Tạo' : 'Create')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingCollection(false)
+                            setCreateTitle('')
+                            setCreateError('')
+                          }}
+                          className="flex-1 rounded-xl bg-surface-elevated py-2 text-xs font-medium text-slate-300 transition hover:bg-surface-base"
+                        >
+                          {lang === 'vi' ? 'Hủy' : 'Cancel'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {successMessage && (
@@ -1098,9 +1860,9 @@ function HomePage() {
         )}
       </div>
 
-      {isFeedbackOpen && (
+      {feedbackModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl">
+          <div className="w-full max-w-xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl">
             <div className="flex items-center justify-between border-b border-surface-border px-6 py-5">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('feedback.title')}</p>
@@ -1116,50 +1878,148 @@ function HomePage() {
                 </svg>
               </button>
             </div>
-            <div className="space-y-4 px-6 py-5">
-              {feedbackRating === 'dislike' && (
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-reason">
-                    {t('feedback.errorReasonLabel')}
-                  </label>
-                  <select
-                    id="feedback-reason"
-                    value={feedbackReason}
-                    onChange={(e) => setFeedbackReason(e.target.value)}
-                    className="w-full rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/30"
-                  >
-                    {DISLIKE_REASONS.map((reason) => (
-                      <option key={reason} value={reason}>{t(`feedback.reasons.${reason}`)}</option>
-                    ))}
-                  </select>
+
+            <div className="space-y-5 px-6 py-5">
+              {feedbackWizardStep === 'stars' ? (
+                <div className="space-y-4">
+                  <p className="text-center text-sm text-slate-300">
+                    {lang === 'vi' ? 'Bạn thấy hệ thống hoạt động như thế nào?' : 'How would you rate the system experience?'}
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const isActive = star <= feedbackRating
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => handleFeedbackRatingSelection(star)}
+                          className={`rounded-full p-2 transition hover:scale-110 hover:bg-surface-elevated ${
+                            isActive ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-300'
+                          }`}
+                          aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                        >
+                          <svg viewBox="0 0 20 20" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" className="h-10 w-10">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                          </svg>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-sm text-slate-300">
+                      {lang === 'vi' ? 'Bạn đã chọn' : 'You selected'} <span className="font-semibold text-white">{feedbackRating}/5</span>
+                    </p>
+                    <div className="flex gap-1 text-yellow-400">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <svg
+                          key={star}
+                          viewBox="0 0 20 20"
+                          fill={star <= feedbackRating ? 'currentColor' : 'none'}
+                          stroke="currentColor"
+                          className="h-5 w-5"
+                        >
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.196-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.027 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                        </svg>
+                      ))}
+                    </div>
+                  </div>
+
+                  {feedbackCriteriaLoading ? (
+                    <div className="rounded-2xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-400">
+                      {lang === 'vi' ? 'Đang tải tiêu chí đánh giá...' : 'Loading feedback criteria...'}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {feedbackCriteria.length > 0 ? (
+                          feedbackCriteria.map((criteria) => {
+                            const isSelected = feedbackSelectedTag === criteria.code
+                            const translatedReason = t(`feedback.reasons.${criteria.code}`)
+                            const displayLabel =
+                              translatedReason && translatedReason !== `feedback.reasons.${criteria.code}`
+                                ? translatedReason
+                                : criteria.label
+                            return (
+                              <button
+                                key={criteria.code}
+                                type="button"
+                                onClick={() => toggleFeedbackTag(criteria.code)}
+                                className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
+                                  isSelected
+                                    ? 'border-accent bg-accent/20 text-white ring-1 ring-accent font-semibold'
+                                    : 'border-surface-border bg-surface-base text-slate-300 hover:border-accent/50'
+                                }`}
+                              >
+                                {displayLabel}
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <p className="text-sm text-slate-400">
+                            {lang === 'vi' ? 'Không có tiêu chí nào cho mức sao này.' : 'No criteria are available for this rating.'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
+                          {lang === 'vi' ? 'Nhận xét chi tiết' : 'Detailed feedback'}
+                        </label>
+                        <textarea
+                          id="feedback-detail"
+                          value={feedbackText}
+                          onChange={(e) => setFeedbackText(e.target.value)}
+                          rows={4}
+                          placeholder={lang === 'vi' ? 'Viết thêm ý kiến của bạn...' : 'Write a few more details...'}
+                          className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-200" htmlFor="feedback-detail">
-                  {feedbackRating === 'like' ? t('feedback.likeCommentLabel') : t('feedback.detailsLabel')}
-                </label>
-                <textarea
-                  id="feedback-detail"
-                  value={feedbackText}
-                  onChange={(e) => setFeedbackText(e.target.value)}
-                  rows={4}
-                  placeholder={feedbackRating === 'like' ? t('feedback.likePlaceholder') : t('feedback.placeholder')}
-                  className="w-full resize-none rounded-3xl border border-surface-border bg-surface-base px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-              </div>
               {feedbackSubmitError && (
                 <p className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
                   {feedbackSubmitError}
                 </p>
               )}
             </div>
+
             <div className="flex flex-col gap-3 border-t border-surface-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-sm text-slate-400">{t('feedback.note')}</span>
+              <div className="flex items-center gap-2">
+                {feedbackWizardStep !== 'stars' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedbackWizardStep('stars')
+                      setFeedbackSelectedTag('')
+                      setFeedbackText('')
+                      setFeedbackSubmitError('')
+                    }}
+                    className="rounded-full border border-surface-border bg-surface-base px-3 py-2 text-xs text-slate-300"
+                  >
+                    {lang === 'vi' ? 'Quay lại' : 'Back'}
+                  </button>
+                )}
+              </div>
+
+              <span className="text-sm text-slate-400">
+                {feedbackTargetType === 'system'
+                  ? lang === 'vi'
+                    ? 'Đánh giá này nhằm cải thiện trải nghiệm hệ thống.'
+                    : 'This feedback helps improve the system experience.'
+                  : lang === 'vi'
+                    ? 'Đánh giá này nhằm cải thiện chất lượng bản tóm tắt.'
+                    : 'This feedback helps improve the summary quality.'}
+              </span>
               <button
                 type="button"
                 onClick={handleSendFeedback}
-                disabled={!summary || feedbackSubmitting}
+                disabled={feedbackSubmitting || feedbackWizardStep === 'stars' || feedbackRating < 1}
                 className="inline-flex items-center justify-center rounded-3xl bg-accent px-5 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:opacity-40"
               >
                 {feedbackSubmitting ? t('feedback.sending') : t('feedback.send')}
@@ -1168,6 +2028,16 @@ function HomePage() {
           </div>
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={() => openSystemFeedbackForm()}
+        className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-xl text-surface-base shadow-2xl shadow-accent/30 transition hover:scale-105 hover:bg-accent-hover"
+        aria-label={lang === 'vi' ? 'Đánh giá hệ thống' : 'System feedback'}
+        title={lang === 'vi' ? 'Đánh giá hệ thống để cải thiện trải nghiệm hệ thống' : 'System feedback to improve the platform experience'}
+      >
+        ★
+      </button>
     </div>
   )
 }

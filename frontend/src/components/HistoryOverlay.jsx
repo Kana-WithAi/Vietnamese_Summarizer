@@ -2,9 +2,42 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
-import { historyApi } from '../utils/api'
+import { collectionsApi, historyApi } from '../utils/api'
 
 const ITEMS_PER_PAGE = 20
+const DEFAULT_COLLECTION_NAME = 'Default'
+
+function readLocalCollectionData() {
+  try {
+    const raw = localStorage.getItem('vietnamese-summarizer-collections')
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function getHistoryCollection(item) {
+  if (typeof item?.collection === 'string' && item.collection.trim()) {
+    return item.collection.trim()
+  }
+
+  if (item?.collection && typeof item.collection === 'object' && item.collection.name) {
+    return String(item.collection.name).trim()
+  }
+
+  const fallback = item?.collection_name || item?.collectionName || item?.category
+  if (fallback && typeof fallback === 'string') {
+    return fallback.trim()
+  }
+
+  return DEFAULT_COLLECTION_NAME
+}
+
+function getHistoryBookmark(item) {
+  return Boolean(item?.is_bookmarked ?? item?.isBookmarked ?? item?.bookmarked ?? false)
+}
 
 function normalizeHistoryListResponse(raw) {
   const payload = raw?.data || raw
@@ -38,6 +71,10 @@ function getHistoryTitle(item) {
 }
 
 function getHistoryCreatedAt(item) {
+  return item?.created_at || item?.createdAt || item?.updated_at || item?.updatedAt || ''
+}
+
+function getCollectionCreatedAt(item) {
   return item?.created_at || item?.createdAt || item?.updated_at || item?.updatedAt || ''
 }
 
@@ -82,12 +119,77 @@ function HistoryOverlay() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
 
+  const [activeTab, setActiveTab] = useState('history')
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
+  const [selectedCollection, setSelectedCollection] = useState(null)
+  const [selectedCollectionItems, setSelectedCollectionItems] = useState([])
+  const [selectedCollectionPage, setSelectedCollectionPage] = useState(1)
+  const [selectedCollectionTotalPages, setSelectedCollectionTotalPages] = useState(0)
+  const [selectedCollectionTotalItems, setSelectedCollectionTotalItems] = useState(0)
+  const [collectionDetailLoading, setCollectionDetailLoading] = useState(false)
+  const [collectionDetailError, setCollectionDetailError] = useState('')
+
+  const [collections, setCollections] = useState([])
+  const [collectionFilter, setCollectionFilter] = useState('all')
+  const [newCollectionName, setNewCollectionName] = useState('')
+  const [collectionValidationError, setCollectionValidationError] = useState('')
+  const [collectionsLoading, setCollectionsLoading] = useState(false)
+  const [collectionsError, setCollectionsError] = useState('')
+  const [collectionSearch, setCollectionSearch] = useState('')
+  const [collectionDateFilter, setCollectionDateFilter] = useState('all')
+  const [collectionSortBy, setCollectionSortBy] = useState('newest')
+  const [editingCollectionId, setEditingCollectionId] = useState('')
+  const [editingCollectionName, setEditingCollectionName] = useState('')
+
   const [editId, setEditId] = useState('')
   const [editTitle, setEditTitle] = useState('')
   const [actionLoadingId, setActionLoadingId] = useState('')
   const [clearingAll, setClearingAll] = useState(false)
 
   const isLoggedIn = Boolean(localStorage.getItem('accessToken'))
+
+  const normalizeCollection = (item) => {
+    const name = String(item?.name || item?.title || item?.collection_name || item?.collectionName || DEFAULT_COLLECTION_NAME).trim() || DEFAULT_COLLECTION_NAME
+    return {
+      id: item?.id || item?._id || item?.collection_id || item?.collectionId || name,
+      name,
+      title: item?.title || item?.name || name,
+      description: item?.description || '',
+      count: Number(item?.count ?? item?.item_count ?? item?.items_count ?? 0) || 0,
+      created_at: getCollectionCreatedAt(item),
+      createdAt: getCollectionCreatedAt(item),
+    }
+  }
+
+  const loadCollections = async () => {
+    if (!isLoggedIn) {
+      setCollections([])
+      return
+    }
+
+    setCollectionsLoading(true)
+    setCollectionsError('')
+
+    try {
+      const response = await collectionsApi.list({ page: 1, limit: 100 })
+      const payload = response?.data || response || {}
+      const rawCollections = payload?.items || payload?.collections || payload?.results || (Array.isArray(payload) ? payload : [])
+
+      const nextCollections = Array.isArray(rawCollections)
+        ? rawCollections.map(normalizeCollection)
+        : [normalizeCollection(payload)]
+
+      setCollections(nextCollections)
+      if (collectionFilter !== 'all' && !nextCollections.some((collection) => collection.name === collectionFilter)) {
+        setCollectionFilter('all')
+      }
+    } catch (nextError) {
+      setCollectionsError(nextError?.message || 'Unable to load collections.')
+      setCollections([])
+    } finally {
+      setCollectionsLoading(false)
+    }
+  }
 
   const loadHistoryList = async (nextPage) => {
     setIsLoading(true)
@@ -96,13 +198,24 @@ function HistoryOverlay() {
     try {
       const response = await historyApi.list({ page: nextPage, limit: ITEMS_PER_PAGE })
       const parsed = normalizeHistoryListResponse(response)
+      const localCollections = readLocalCollectionData()
+      const localItems = Object.values(localCollections).flat().map((item) => ({
+        ...item,
+        collection: item.collection || DEFAULT_COLLECTION_NAME,
+        is_bookmarked: Boolean(item.is_bookmarked ?? item.isBookmarked ?? false),
+      }))
+      const mergedItems = [...(Array.isArray(parsed.items) ? parsed.items : []), ...localItems]
+      const dedupedItems = mergedItems.filter((item, index, array) => {
+        const id = String(getHistoryId(item, index))
+        return array.findIndex((candidate) => String(getHistoryId(candidate, 0)) === id) === index
+      })
 
-      setItems(parsed.items)
+      setItems(dedupedItems)
       setTotalPages(parsed.totalPages)
       if (parsed.totalPages > 0) {
         setHasNextPage(nextPage < parsed.totalPages)
       } else {
-        setHasNextPage(parsed.items.length === ITEMS_PER_PAGE)
+        setHasNextPage(parsed.items.length === ITEMS_PER_PAGE || localItems.length > 0)
       }
     } catch (nextError) {
       setItems([])
@@ -114,6 +227,139 @@ function HistoryOverlay() {
     }
   }
 
+  const loadCollectionDetail = async (collectionId, nextPage = 1) => {
+    if (!collectionId) return
+
+    setCollectionDetailLoading(true)
+    setCollectionDetailError('')
+
+    try {
+      const [detailResponse, historiesResponse] = await Promise.all([
+        collectionsApi.getById(collectionId),
+        collectionsApi.getHistories(collectionId, { page: nextPage, limit: ITEMS_PER_PAGE }),
+      ])
+
+      const detail = detailResponse?.data || detailResponse || {}
+      const normalizedDetail = detail?.item || detail?.collection || detail || {}
+      const historyPayload = historiesResponse?.data || historiesResponse || {}
+      const historyItems = historyPayload?.items || historyPayload?.histories || historyPayload?.results || (Array.isArray(historyPayload) ? historyPayload : [])
+      const pagination = historyPayload?.pagination || historyPayload?.meta || {}
+
+      setSelectedCollection({
+        id: normalizedDetail?.id || normalizedDetail?._id || collectionId,
+        name: normalizedDetail?.name || normalizedDetail?.title || 'Collection',
+        description: normalizedDetail?.description || '',
+        created_at: normalizedDetail?.created_at || normalizedDetail?.createdAt || '',
+        count: Number(normalizedDetail?.count ?? normalizedDetail?.items_count ?? normalizedDetail?.item_count ?? 0) || 0,
+      })
+      setSelectedCollectionItems(Array.isArray(historyItems) ? historyItems : [])
+      setSelectedCollectionTotalPages(
+        Number(pagination?.totalPages || pagination?.total_pages || historyPayload?.totalPages || historyPayload?.total_pages || 0) || 0,
+      )
+      setSelectedCollectionTotalItems(
+        Number(pagination?.totalItems || pagination?.total_items || historyPayload?.totalItems || historyPayload?.total_items || 0) || 0,
+      )
+      setSelectedCollectionPage(nextPage)
+    } catch (nextError) {
+      setSelectedCollection(null)
+      setSelectedCollectionItems([])
+      setCollectionDetailError(nextError?.message || 'Unable to load collection detail.')
+    } finally {
+      setCollectionDetailLoading(false)
+    }
+  }
+
+  const createCollection = async () => {
+    const trimmed = newCollectionName.trim()
+    if (!trimmed) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
+    }
+
+    const exists = collections.some(
+      (collection) => String(collection?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exists) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
+      return
+    }
+
+    setCollectionValidationError('')
+
+    try {
+      await collectionsApi.create({ name: trimmed, title: trimmed })
+      setNewCollectionName('')
+      await loadCollections()
+    } catch (nextError) {
+      setCollectionsError(nextError?.message || 'Unable to create collection.')
+    }
+  }
+
+  const deleteCollection = async (collection) => {
+    if (!collection?.id) return
+    const confirmed = window.confirm(`Delete collection "${collection.name}"?`)
+    if (!confirmed) return
+
+    try {
+      await collectionsApi.remove(collection.id)
+      await loadCollections()
+      if (collectionFilter === collection.name) {
+        setCollectionFilter('all')
+      }
+    } catch (nextError) {
+      setCollectionsError(nextError?.message || 'Unable to delete collection.')
+    }
+  }
+
+  const startEditCollection = (collection) => {
+    if (!collection?.id) return
+    setEditingCollectionId(collection.id)
+    setEditingCollectionName(collection.name || '')
+    setCollectionValidationError('')
+  }
+
+  const cancelEditCollection = () => {
+    setEditingCollectionId('')
+    setEditingCollectionName('')
+    setCollectionValidationError('')
+  }
+
+  const saveCollectionEdit = async (collection) => {
+    if (!collection?.id) return
+
+    const trimmed = editingCollectionName.trim()
+    if (!trimmed) {
+      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      return
+    }
+
+    const hasDuplicate = collections.some(
+      (item) => item.id !== collection.id && String(item?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (hasDuplicate) {
+      setCollectionValidationError(
+        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
+      )
+      return
+    }
+
+    setCollectionValidationError('')
+
+    try {
+      await collectionsApi.update(collection.id, { name: trimmed, title: trimmed })
+      setEditingCollectionId('')
+      setEditingCollectionName('')
+      await loadCollections()
+      if (selectedCollection?.id === collection.id) {
+        await loadCollectionDetail(collection.id, selectedCollectionPage)
+      }
+    } catch (nextError) {
+      setCollectionsError(nextError?.message || 'Unable to update collection.')
+    }
+  }
+
   const loadHistoryDetail = async (id) => {
     if (!id) return
 
@@ -122,6 +368,15 @@ function HistoryOverlay() {
     setSelectedId(id)
 
     try {
+      if (String(id).startsWith('local-')) {
+        const localCollections = readLocalCollectionData()
+        const found = Object.values(localCollections)
+          .flat()
+          .find((item) => item?.id === id)
+        setSelectedItem(found || null)
+        return
+      }
+
       const response = await historyApi.getById(id)
       const payload = response?.data || response
       const history = payload?.item || payload?.history || payload
@@ -141,6 +396,15 @@ function HistoryOverlay() {
       }
     }
 
+    const handleHistoryUpdate = () => {
+      if (isLoggedIn) {
+        loadHistoryList(page)
+        loadCollections()
+      }
+    }
+
+    window.addEventListener('history:updated', handleHistoryUpdate)
+
     if (isHistoryOpen) {
       document.addEventListener('keydown', handleEscape)
       document.body.style.overflow = 'hidden'
@@ -152,16 +416,18 @@ function HistoryOverlay() {
         setError(t('historyOverlay.loginRequired'))
       } else {
         loadHistoryList(1)
+        loadCollections()
       }
 
       setPage(1)
     }
 
     return () => {
+      window.removeEventListener('history:updated', handleHistoryUpdate)
       document.removeEventListener('keydown', handleEscape)
       document.body.style.overflow = 'unset'
     }
-  }, [isHistoryOpen, closeHistory, isLoggedIn, t])
+  }, [isHistoryOpen, closeHistory, isLoggedIn, t, page])
 
   useEffect(() => {
     if (!isHistoryOpen || !isLoggedIn) return
@@ -174,6 +440,10 @@ function HistoryOverlay() {
     const filtered = items.filter((item) => {
       const title = String(getHistoryTitle(item)).toLowerCase()
       if (q && !title.includes(q)) return false
+
+      if (collectionFilter !== 'all' && getHistoryCollection(item) !== collectionFilter) {
+        return false
+      }
 
       if (dateFilter !== 'all') {
         const createdAt = getHistoryCreatedAt(item)
@@ -203,7 +473,7 @@ function HistoryOverlay() {
 
       return bDate - aDate
     })
-  }, [items, search, dateFilter, sortBy])
+  }, [items, search, dateFilter, sortBy, collectionFilter])
 
   const canGoPrev = page > 1
   const canGoNext = totalPages > 0 ? page < totalPages : hasNextPage
@@ -219,6 +489,48 @@ function HistoryOverlay() {
     await loadHistoryDetail(id)
   }
 
+  const handleToggleBookmark = async (item, index) => {
+    const id = getHistoryId(item, index)
+    const nextValue = !getHistoryBookmark(item)
+
+    if (typeof id === 'string' && id.startsWith('local-')) {
+      const localCollections = readLocalCollectionData()
+      const nextItems = Object.fromEntries(
+        Object.entries(localCollections).map(([collectionName, entries]) => [
+          collectionName,
+          Array.isArray(entries)
+            ? entries.map((entry) =>
+                entry.id === id
+                  ? { ...entry, is_bookmarked: nextValue, isBookmarked: nextValue }
+                  : entry,
+              )
+            : [],
+        ]),
+      )
+      localStorage.setItem('vietnamese-summarizer-collections', JSON.stringify(nextItems))
+      setItems((current) => current.map((entry) => (getHistoryId(entry, 0) === id ? { ...entry, is_bookmarked: nextValue, isBookmarked: nextValue } : entry)))
+      if (selectedId === id) {
+        setSelectedItem((current) => (current ? { ...current, is_bookmarked: nextValue, isBookmarked: nextValue } : current))
+      }
+      return
+    }
+
+    setActionLoadingId(`bookmark-${id}`)
+    setError('')
+
+    try {
+      await historyApi.setBookmark(id, nextValue)
+      await loadHistoryList(page)
+      if (selectedId === id) {
+        await loadHistoryDetail(id)
+      }
+    } catch (nextError) {
+      setError(nextError?.message || t('historyOverlay.errors.toggleBookmark'))
+    } finally {
+      setActionLoadingId('')
+    }
+  }
+
   const handleSelectForSummary = async (item, index) => {
     const id = getHistoryId(item, index)
     if (!id || id.startsWith('history-')) return
@@ -227,9 +539,12 @@ function HistoryOverlay() {
     setError('')
 
     try {
-      const response = await historyApi.getById(id)
-      const payload = response?.data || response
-      const history = payload?.item || payload?.history || payload || item
+      let history = item
+      if (!String(id).startsWith('local-')) {
+        const response = await historyApi.getById(id)
+        const payload = response?.data || response
+        history = payload?.item || payload?.history || payload || item
+      }
 
       const inputText = String(
         history?.source_text ||
@@ -308,7 +623,20 @@ function HistoryOverlay() {
     setError('')
 
     try {
-      await historyApi.removeById(id)
+      if (String(id).startsWith('local-')) {
+        const collectionMap = readLocalCollectionData()
+        for (const [collectionName, entries] of Object.entries(collectionMap)) {
+          if (!Array.isArray(entries)) continue
+          const filteredEntries = entries.filter((entry) => entry.id !== id)
+          if (filteredEntries.length !== entries.length) {
+            collectionMap[collectionName] = filteredEntries
+          }
+        }
+        localStorage.setItem('vietnamese-summarizer-collections', JSON.stringify(collectionMap))
+        setItems((current) => current.filter((item) => getHistoryId(item, 0) !== id))
+      } else {
+        await historyApi.removeById(id)
+      }
 
       const nextItems = filteredItems.filter((item, index) => getHistoryId(item, index) !== id)
       const shouldStepBack = nextItems.length === 0 && page > 1
@@ -352,6 +680,224 @@ function HistoryOverlay() {
     } finally {
       setClearingAll(false)
     }
+  }
+
+  const filteredCollections = useMemo(() => {
+    const query = collectionSearch.trim().toLowerCase()
+    const list = [...collections]
+
+    return list
+      .filter((collection) => {
+        const matchesQuery = !query || String(collection.name).toLowerCase().includes(query)
+        return matchesQuery
+      })
+      .sort((a, b) => {
+        if (collectionSortBy === 'title-asc') {
+          return String(a.name).localeCompare(String(b.name))
+        }
+        if (collectionSortBy === 'title-desc') {
+          return String(b.name).localeCompare(String(a.name))
+        }
+        const aDate = new Date(a.created_at || a.createdAt || 0).getTime()
+        const bDate = new Date(b.created_at || b.createdAt || 0).getTime()
+        return collectionSortBy === 'oldest' ? aDate - bDate : bDate - aDate
+      })
+  }, [collections, collectionSearch, collectionSortBy])
+
+  const filteredCollectionItems = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    const now = Date.now()
+
+    return [...selectedCollectionItems]
+      .filter((item) => {
+        const title = String(getHistoryTitle(item)).toLowerCase()
+        if (query && !title.includes(query)) return false
+
+        if (collectionDateFilter !== 'all') {
+          const createdAt = new Date(getHistoryCreatedAt(item)).getTime()
+          if (Number.isNaN(createdAt)) return false
+          if (collectionDateFilter === '7d' && now - createdAt > 7 * 24 * 60 * 60 * 1000) return false
+          if (collectionDateFilter === '30d' && now - createdAt > 30 * 24 * 60 * 60 * 1000) return false
+        }
+
+        return true
+      })
+      .sort((a, b) => {
+        if (sortBy === 'title-asc') {
+          return getHistoryTitle(a).localeCompare(getHistoryTitle(b))
+        }
+        if (sortBy === 'title-desc') {
+          return getHistoryTitle(b).localeCompare(getHistoryTitle(a))
+        }
+        const aDate = new Date(getHistoryCreatedAt(a)).getTime() || 0
+        const bDate = new Date(getHistoryCreatedAt(b)).getTime() || 0
+        return sortBy === 'oldest' ? aDate - bDate : bDate - aDate
+      })
+  }, [selectedCollectionItems, search, collectionDateFilter, sortBy])
+
+  const handleOpenCollection = async (collection) => {
+    if (!collection?.id) return
+    setActiveTab('collection-detail')
+    setSelectedCollectionId(collection.id)
+    await loadCollectionDetail(collection.id, 1)
+  }
+
+  const handleBackToCollections = () => {
+    setActiveTab('collections')
+    setSelectedCollectionId('')
+    setSelectedCollection(null)
+    setSelectedCollectionItems([])
+    setCollectionDetailError('')
+  }
+
+  const renderHistoryRows = (historyData, isCollectionView = false) => {
+    if (!historyData.length) {
+      return (
+        <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+          {t('historyOverlay.empty')}
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-3">
+        {historyData.map((item, index) => {
+          const id = getHistoryId(item, index)
+          const isEditing = editId === id
+          const isDeletingLoading = actionLoadingId === `delete-${id}`
+          const isBookmarked = getHistoryBookmark(item)
+          const collectionName = getHistoryCollection(item)
+
+          return (
+            <div
+              key={id}
+              className="group relative w-full rounded-lg border border-surface-border/20 bg-surface-base/40 transition hover:border-surface-border/40 hover:bg-surface-base/70"
+              onClick={() => {
+                if (!isEditing && !isDeletingLoading) {
+                  handleSelectForSummary(item, index)
+                }
+              }}
+            >
+              <div className="p-3">
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <input
+                      onClick={(event) => event.stopPropagation()}
+                      value={editTitle}
+                      onChange={(event) => setEditTitle(event.target.value)}
+                      className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-100 outline-none"
+                      maxLength={120}
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleSaveTitle(id)
+                        }}
+                        disabled={actionLoadingId === `edit-${id}` || !editTitle.trim()}
+                        className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-surface-base transition disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {actionLoadingId === `edit-${id}` ? t('historyOverlay.saving') : t('historyOverlay.save')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleCancelEdit()
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
+                      >
+                        {t('historyOverlay.cancel')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium text-slate-200 transition group-hover:text-white">
+                      {getHistoryTitle(item) || t('historyOverlay.untitled')}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">{formatDate(getHistoryCreatedAt(item), lang)}</p>
+                      {!isCollectionView && (
+                        <span className="rounded-full border border-surface-border bg-surface-base px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                          {collectionName}
+                        </span>
+                      )}
+                    </div>
+                    {selectedId === id && (
+                      <div className="mt-3 rounded-lg border border-surface-border/40 bg-surface-base/50 px-3 py-2">
+                        <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          {t('historyOverlay.detailTitle')}
+                        </p>
+                        {detailLoading ? (
+                          <p className="text-sm text-slate-400">{t('historyOverlay.loadingDetail')}</p>
+                        ) : detailError ? (
+                          <p className="text-sm text-rose-300">{detailError}</p>
+                        ) : selectedItem ? (
+                          <div className="space-y-2">
+                            {getHistorySummary(selectedItem) && (
+                              <p className="line-clamp-5 text-sm text-slate-300">{getHistorySummary(selectedItem)}</p>
+                            )}
+                            {!getHistorySummary(selectedItem) && getHistorySourceText(selectedItem) && (
+                              <p className="line-clamp-5 text-sm text-slate-300">{getHistorySourceText(selectedItem)}</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleViewDetail(item, index)
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
+                      >
+                        {t('historyOverlay.view')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleStartEdit(item, index)
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
+                      >
+                        {t('historyOverlay.edit')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleToggleBookmark(item, index)
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-amber-300 transition hover:bg-amber-500/10"
+                        aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+                      >
+                        {isBookmarked ? '★' : '☆'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleRemove(id)
+                        }}
+                        disabled={isDeletingLoading}
+                        className="rounded-md px-2 py-1 text-xs text-rose-300 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isDeletingLoading ? t('historyOverlay.removing') : t('historyOverlay.remove')}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   return (
@@ -408,156 +954,178 @@ function HistoryOverlay() {
             </div>
           )}
 
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-base px-2 py-1">
-              <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
-              </svg>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('historyOverlay.searchPlaceholder')}
-                className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
-              />
+          {activeTab !== 'collection-detail' && (
+            <div className="mb-4 flex rounded-xl border border-surface-border bg-surface-base p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('history')
+                  setSelectedCollection(null)
+                  setSelectedCollectionId('')
+                }}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  activeTab === 'history' ? 'bg-accent text-surface-base' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {t('historyOverlay.tabHistory')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('collections')
+                  setSelectedCollection(null)
+                  setSelectedCollectionId('')
+                }}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  activeTab === 'collections' || activeTab === 'collection-detail'
+                    ? 'bg-accent text-surface-base'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {t('historyOverlay.tabCollections')}
+              </button>
             </div>
-          </div>
-
-          <div className="mb-4 grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.filterByDate')}</span>
-              <select
-                value={dateFilter}
-                onChange={(event) => setDateFilter(event.target.value)}
-                className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
-              >
-                <option value="all">{t('historyOverlay.filterAllTime')}</option>
-                <option value="7d">{t('historyOverlay.filterLast7Days')}</option>
-                <option value="30d">{t('historyOverlay.filterLast30Days')}</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.sortBy')}</span>
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value)}
-                className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
-              >
-                <option value="newest">{t('historyOverlay.sortNewest')}</option>
-                <option value="oldest">{t('historyOverlay.sortOldest')}</option>
-                <option value="title-asc">{t('historyOverlay.sortTitleAsc')}</option>
-                <option value="title-desc">{t('historyOverlay.sortTitleDesc')}</option>
-              </select>
-            </label>
-          </div>
+          )}
 
           {error && <p className="mb-3 text-sm text-rose-300">{error}</p>}
 
-          {isLoading ? (
-            <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
-              {t('historyOverlay.loading')}
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
-              {t('historyOverlay.empty')}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredItems.map((item, index) => {
-                const id = getHistoryId(item, index)
-                const isEditing = editId === id
-                const isEditingLoading = actionLoadingId === `edit-${id}`
-                const isDeletingLoading = actionLoadingId === `delete-${id}`
+          {activeTab === 'history' && (
+            <>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-base px-2 py-1">
+                  <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t('historyOverlay.searchPlaceholder')}
+                    className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
 
-                return (
-                <div
-                  key={id}
-                  className="group relative w-full rounded-lg border border-surface-border/20 bg-surface-base/40 transition hover:border-surface-border/40 hover:bg-surface-base/70"
-                  onClick={() => {
-                    if (!isEditing && !isEditingLoading && !isDeletingLoading) {
-                      handleSelectForSummary(item, index)
-                    }
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.filterByDate')}</span>
+                  <select
+                    value={dateFilter}
+                    onChange={(event) => setDateFilter(event.target.value)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
+                  >
+                    <option value="all">{t('historyOverlay.filterAllTime')}</option>
+                    <option value="7d">{t('historyOverlay.filterLast7Days')}</option>
+                    <option value="30d">{t('historyOverlay.filterLast30Days')}</option>
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.sortBy')}</span>
+                  <select
+                    value={sortBy}
+                    onChange={(event) => setSortBy(event.target.value)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
+                  >
+                    <option value="newest">{t('historyOverlay.sortNewest')}</option>
+                    <option value="oldest">{t('historyOverlay.sortOldest')}</option>
+                    <option value="title-asc">{t('historyOverlay.sortTitleAsc')}</option>
+                    <option value="title-desc">{t('historyOverlay.sortTitleDesc')}</option>
+                  </select>
+                </label>
+              </div>
+
+              {isLoading ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.loading')}
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.empty')}
+                </div>
+              ) : (
+                renderHistoryRows(filteredItems)
+              )}
+            </>
+          )}
+
+          {activeTab === 'collections' && (
+            <>
+              <div className="mb-4 flex gap-2">
+                <div className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-base px-2 py-1.5">
+                  <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <input
+                    value={collectionSearch}
+                    onChange={(e) => setCollectionSearch(e.target.value)}
+                    placeholder={t('historyOverlay.collectionSearchPlaceholder')}
+                    className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mb-4 flex gap-2">
+                <input
+                  value={newCollectionName}
+                  onChange={(event) => {
+                    setNewCollectionName(event.target.value)
+                    if (collectionValidationError) setCollectionValidationError('')
                   }}
+                  placeholder={t('historyOverlay.collectionNamePlaceholder')}
+                  className="w-full rounded-lg border border-surface-border bg-surface-base px-2 py-2 text-xs text-slate-200 placeholder:text-slate-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={createCollection}
+                  className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-surface-base"
                 >
-                  <div className="p-3">
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        <input
-                          onClick={(event) => event.stopPropagation()}
-                          value={editTitle}
-                          onChange={(event) => setEditTitle(event.target.value)}
-                          className="w-full rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-100 outline-none"
-                          maxLength={120}
-                        />
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleSaveTitle(id)
-                            }}
-                            disabled={isEditingLoading || !editTitle.trim()}
-                            className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-surface-base transition disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {isEditingLoading ? t('historyOverlay.saving') : t('historyOverlay.save')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleCancelEdit()
-                            }}
-                            className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
-                          >
-                            {t('historyOverlay.cancel')}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="truncate text-sm font-medium text-slate-200 transition group-hover:text-white">
-                          {getHistoryTitle(item) || t('historyOverlay.untitled')}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">{formatDate(getHistoryCreatedAt(item), lang)}</p>
-                        {selectedId === id && (
-                          <div className="mt-3 rounded-lg border border-surface-border/40 bg-surface-base/50 px-3 py-2">
-                            <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                              {t('historyOverlay.detailTitle')}
-                            </p>
-                            {detailLoading ? (
-                              <p className="text-sm text-slate-400">{t('historyOverlay.loadingDetail')}</p>
-                            ) : detailError ? (
-                              <p className="text-sm text-rose-300">{detailError}</p>
-                            ) : selectedItem ? (
-                              <div className="space-y-2">
-                                {getHistorySummary(selectedItem) && (
-                                  <p className="line-clamp-5 text-sm text-slate-300">{getHistorySummary(selectedItem)}</p>
-                                )}
-                                {!getHistorySummary(selectedItem) && getHistorySourceText(selectedItem) && (
-                                  <p className="line-clamp-5 text-sm text-slate-300">{getHistorySourceText(selectedItem)}</p>
-                                )}
-                              </div>
-                            ) : null}
+                  {t('historyOverlay.createCollection')}
+                </button>
+              </div>
+
+              {collectionValidationError && <p className="mb-3 text-xs text-rose-300">{collectionValidationError}</p>}
+              {collectionsError && <p className="mb-3 text-xs text-rose-300">{collectionsError}</p>}
+
+              {collectionsLoading ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.loading')}
+                </div>
+              ) : filteredCollections.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.noCollections')}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredCollections.map((collection) => (
+                    <div
+                      key={collection.id}
+                      className="rounded-2xl border border-surface-border/40 bg-surface-base/35 p-3 transition hover:border-surface-border hover:bg-surface-base/60"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCollection(collection)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="truncate text-sm font-semibold text-slate-100">{collection.name}</div>
+                          <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                            <span>
+                              {collection.count || 0} {t('historyOverlay.collectionCount')}
+                            </span>
+                            <span>
+                              {t('historyOverlay.createdAt')}: {formatDate(getCollectionCreatedAt(collection), lang)}
+                            </span>
                           </div>
-                        )}
-                        <div className="mt-3 flex items-center gap-2">
+                        </button>
+
+                        <div className="flex shrink-0 items-center gap-2">
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation()
-                              handleViewDetail(item, index)
+                              startEditCollection(collection)
                             }}
-                            className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
-                          >
-                            {t('historyOverlay.view')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleStartEdit(item, index)
-                            }}
-                            className="rounded-md px-2 py-1 text-xs text-slate-300 transition hover:bg-surface-base/60"
+                            className="text-[10px] font-medium text-slate-300 hover:text-white"
                           >
                             {t('historyOverlay.edit')}
                           </button>
@@ -565,21 +1133,123 @@ function HistoryOverlay() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation()
-                              handleRemove(id)
+                              deleteCollection(collection)
                             }}
-                            disabled={isDeletingLoading}
-                            className="rounded-md px-2 py-1 text-xs text-rose-300 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="text-[10px] font-medium text-rose-300 hover:text-rose-200"
                           >
-                            {isDeletingLoading ? t('historyOverlay.removing') : t('historyOverlay.remove')}
+                            {t('historyOverlay.remove')}
                           </button>
                         </div>
-                      </>
-                    )}
-                  </div>
+                      </div>
+
+                      {editingCollectionId === collection.id && (
+                        <div className="mt-3 space-y-2 border-t border-surface-border/60 pt-3">
+                          <input
+                            value={editingCollectionName}
+                            onChange={(event) => setEditingCollectionName(event.target.value)}
+                            className="w-full rounded-lg border border-surface-border bg-surface-base px-2 py-2 text-xs text-slate-200 placeholder:text-slate-500 outline-none"
+                            placeholder={t('historyOverlay.collectionNamePlaceholder')}
+                          />
+                          {collectionValidationError && (
+                            <p className="text-[10px] text-rose-300">{collectionValidationError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => saveCollectionEdit(collection)}
+                              className="flex-1 rounded-lg bg-accent px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-surface-base"
+                            >
+                              {t('historyOverlay.save')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditCollection}
+                              className="flex-1 rounded-lg bg-surface-elevated px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                            >
+                              {t('historyOverlay.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                )
-              })}
-            </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'collection-detail' && (
+            <>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleBackToCollections}
+                  className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200"
+                >
+                  ← {t('historyOverlay.backToCollections')}
+                </button>
+                <div className="truncate text-sm font-semibold text-slate-100">
+                  {selectedCollection?.name || t('historyOverlay.collectionDetail')}
+                </div>
+              </div>
+
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-base px-2 py-1">
+                  <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t('historyOverlay.searchPlaceholder')}
+                    className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.filterByDate')}</span>
+                  <select
+                    value={dateFilter}
+                    onChange={(event) => setDateFilter(event.target.value)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
+                  >
+                    <option value="all">{t('historyOverlay.filterAllTime')}</option>
+                    <option value="7d">{t('historyOverlay.filterLast7Days')}</option>
+                    <option value="30d">{t('historyOverlay.filterLast30Days')}</option>
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t('historyOverlay.sortBy')}</span>
+                  <select
+                    value={sortBy}
+                    onChange={(event) => setSortBy(event.target.value)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2 py-1.5 text-xs text-slate-200 outline-none"
+                  >
+                    <option value="newest">{t('historyOverlay.sortNewest')}</option>
+                    <option value="oldest">{t('historyOverlay.sortOldest')}</option>
+                    <option value="title-asc">{t('historyOverlay.sortTitleAsc')}</option>
+                    <option value="title-desc">{t('historyOverlay.sortTitleDesc')}</option>
+                  </select>
+                </label>
+              </div>
+
+              {collectionDetailError && <p className="mb-3 text-sm text-rose-300">{collectionDetailError}</p>}
+
+              {collectionDetailLoading ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.loading')}
+                </div>
+              ) : filteredCollectionItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-surface-border/50 bg-surface-base/30 px-4 py-6 text-center text-sm text-slate-400">
+                  {t('historyOverlay.empty')}
+                </div>
+              ) : (
+                renderHistoryRows(filteredCollectionItems, true)
+              )}
+            </>
           )}
         </div>
 

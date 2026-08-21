@@ -32,6 +32,8 @@ function ProfilePage() {
   const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [transactionsError, setTransactionsError] = useState('')
   const [transactionStatusFilter, setTransactionStatusFilter] = useState('')
+  const [cancellingOrderCode, setCancellingOrderCode] = useState('')
+  const [cancelTxMessage, setCancelTxMessage] = useState('')
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -44,12 +46,35 @@ function ProfilePage() {
 
       try {
         const response = await authApi.me()
-        const user = response?.user || response?.data?.user || response?.data || response
+        const payload = response?.data || response || {}
+        const user = payload?.user || payload || {}
+
+        const normalizePlanValue = (value) => {
+          if (!value && value !== 0) return 'Free'
+          const normalized = String(value).trim().toLowerCase()
+          if (!normalized) return 'Free'
+          if (normalized.includes('max')) return 'Max'
+          if (normalized.includes('pro')) return 'Pro'
+          if (normalized.includes('free')) return 'Free'
+          return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+        }
+
+        const resolvedPlan =
+          normalizePlanValue(payload?.current_tier) ||
+          normalizePlanValue(payload?.currentTier) ||
+          normalizePlanValue(user?.current_tier) ||
+          normalizePlanValue(user?.currentTier) ||
+          normalizePlanValue(payload?.subscription?.tier) ||
+          normalizePlanValue(user?.subscription?.tier) ||
+          normalizePlanValue(user?.tier) ||
+          normalizePlanValue(user?.plan) ||
+          'Free'
+
         const nextProfile = {
           displayName: user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || '',
           email: user?.email || '',
           role: user?.role || 'Member',
-          plan: user?.plan || 'Free',
+          plan: resolvedPlan,
         }
 
         setProfile(nextProfile)
@@ -243,6 +268,40 @@ function ProfilePage() {
     if (status === 'completed') return t('profile.transactionsStatusCompleted')
     if (status === 'success') return t('profile.transactionsStatusSuccess')
     return status || t('profile.transactionsUnknown')
+  }
+
+  const getTransactionOrderCode = (transaction) => {
+    return transaction?.order_code || transaction?.orderCode || ''
+  }
+
+  const handleCancelTransaction = async (transaction) => {
+    const orderCode = getTransactionOrderCode(transaction)
+    if (!orderCode) return
+
+    setCancellingOrderCode(String(orderCode))
+    setCancelTxMessage('')
+
+    try {
+      await paymentsApi.cancel(orderCode)
+      setCancelTxMessage(t('profile.transactionsCancelSuccess'))
+      // Cập nhật trạng thái giao dịch ngay lập tức trên UI
+      setTransactions((prev) =>
+        prev.map((item) => {
+          const itemOrderCode = getTransactionOrderCode(item)
+          if (String(itemOrderCode) === String(orderCode)) {
+            return { ...item, status: 'cancelled' }
+          }
+          return item
+        }),
+      )
+    } catch (error) {
+      setCancelTxMessage(
+        error?.message ||
+          (lang === 'vi' ? 'Không thể hủy đơn thanh toán.' : 'Unable to cancel payment transaction.'),
+      )
+    } finally {
+      setCancellingOrderCode('')
+    }
   }
 
   const getTransactionAmount = (transaction) => {
@@ -754,6 +813,12 @@ function ProfilePage() {
 
                 {transactionsError && <p className="text-sm text-rose-300">{transactionsError}</p>}
 
+                {cancelTxMessage && (
+                  <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-200">
+                    {cancelTxMessage}
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   {transactionsLoading ? (
                     <div className="rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3 text-sm text-slate-400">
@@ -766,6 +831,10 @@ function ProfilePage() {
                   ) : (
                     transactions.map((transaction, index) => {
                       const status = getTransactionStatus(transaction)
+                      const isPending = status === 'pending'
+                      const orderCode = getTransactionOrderCode(transaction)
+                      const isCancellingThis = String(orderCode) === String(cancellingOrderCode)
+
                       const statusClass =
                         status === 'paid' || status === 'success' || status === 'completed'
                           ? 'bg-emerald-500/15 text-emerald-300'
@@ -786,9 +855,21 @@ function ProfilePage() {
                               )}
                             </div>
                             <div className="flex flex-col items-start gap-2 sm:items-end">
-                              <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${statusClass}`}>
-                                {getTransactionStatusLabel(status)}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${statusClass}`}>
+                                  {getTransactionStatusLabel(status)}
+                                </span>
+                                {isPending && orderCode && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelTransaction(transaction)}
+                                    disabled={Boolean(cancellingOrderCode)}
+                                    className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {isCancellingThis ? t('profile.transactionsCancelling') : t('profile.transactionsCancel')}
+                                  </button>
+                                )}
+                              </div>
                               <span className="text-lg font-semibold text-white">{getTransactionAmount(transaction)}</span>
                             </div>
                           </div>

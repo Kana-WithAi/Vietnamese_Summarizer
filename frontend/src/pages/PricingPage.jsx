@@ -20,6 +20,8 @@ function PricingPage() {
     planName: '',
     qrDataUrl: '',
   })
+  const [cancellingPayment, setCancellingPayment] = useState(false)
+  const [cancelModalError, setCancelModalError] = useState('')
 
   const getPlanLocaleKey = (planKey) => {
     if (planKey.includes('free')) return 'free'
@@ -78,11 +80,15 @@ function PricingPage() {
 
         setPlans(normalizedPlans)
 
+        const subPayload = subResponse?.data || subResponse || {}
         const tier =
-          subResponse?.data?.tier ||
-          subResponse?.tier ||
-          subResponse?.data?.subscription?.tier ||
+          subPayload?.tier ||
+          subPayload?.plan?.name ||
+          subPayload?.plan?.tier ||
+          subPayload?.subscription?.tier ||
+          subPayload?.subscription?.plan?.name ||
           'free'
+
         setCurrentTier(String(tier).toLowerCase())
       } catch (error) {
         setPlansError(error?.message || t('pricingPage.errors.loadPlans'))
@@ -146,40 +152,39 @@ function PricingPage() {
       })
 
       const payload = response?.data || response
-      const checkoutUrl =
-        payload?.checkout_url ||
-        payload?.payment_url ||
-        payload?.checkoutUrl ||
-        payload?.url ||
-        payload?.data?.checkout_url
-      const orderCode =
-        payload?.order_code ||
-        payload?.orderCode ||
-        payload?.data?.order_code ||
-        payload?.data?.orderCode ||
-        ''
-      const amount = Number(
-        payload?.amount ||
-          payload?.data?.amount ||
-          payload?.payment_amount ||
-          payload?.data?.payment_amount ||
-          plan.price ||
-          0,
-      )
+      // Xử lý trường hợp BE bọc data trong object { code, data: { ... } }
+      const resData = payload?.data || payload
+
+      const checkoutUrl = resData?.checkout_url || payload?.checkout_url
+      const orderCode = resData?.order_code || payload?.order_code
+      const amount = Number(resData?.amount || payload?.amount || plan.price || 0)
 
       if (!checkoutUrl) {
         throw new Error(t('pricingPage.errors.noCheckoutUrl'))
       }
 
-      const qrDataUrl = await QRCode.toDataURL(String(checkoutUrl), {
-        errorCorrectionLevel: 'M',
-        margin: 1,
-        width: 360,
-        color: {
-          dark: '#0f172a',
-          light: '#ffffff',
-        },
-      })
+      // 1. Lấy đúng chuỗi qr_code từ Backend trả về
+      const qrCodeString = resData?.qr_code || payload?.qr_code
+
+      let qrDataUrl = ''
+
+      // 2. CHỈ render mã QR khi có chuỗi qr_code chuẩn
+      if (qrCodeString) {
+        if (qrCodeString.startsWith('data:image/') || qrCodeString.startsWith('http')) {
+          qrDataUrl = qrCodeString
+        } else {
+          // Sinh ảnh QR từ chuỗi VietQR (000201...)
+          qrDataUrl = await QRCode.toDataURL(String(qrCodeString), {
+            errorCorrectionLevel: 'M',
+            margin: 1,
+            width: 360,
+            color: {
+              dark: '#0f172a',
+              light: '#ffffff',
+            },
+          })
+        }
+      }
 
       setPaymentModal({
         open: true,
@@ -187,8 +192,9 @@ function PricingPage() {
         orderCode: String(orderCode),
         amount,
         planName: plan.displayName,
-        qrDataUrl,
+        qrDataUrl, // Đã chứa ảnh VietQR chuẩn
       })
+      setCancelModalError('')
     } catch (error) {
       const message = String(error?.message || '')
       const isBanned = /banned/i.test(message)
@@ -219,6 +225,30 @@ function PricingPage() {
       planName: '',
       qrDataUrl: '',
     })
+    setCancellingPayment(false)
+    setCancelModalError('')
+  }
+
+  const handleCancelPaymentModal = async () => {
+    if (!paymentModal.orderCode) {
+      closePaymentModal()
+      return
+    }
+
+    setCancellingPayment(true)
+    setCancelModalError('')
+
+    try {
+      await paymentsApi.cancel(paymentModal.orderCode)
+      closePaymentModal()
+    } catch (error) {
+      setCancelModalError(
+        error?.message ||
+          (lang === 'vi' ? 'Không thể hủy đơn thanh toán.' : 'Unable to cancel payment transaction.'),
+      )
+    } finally {
+      setCancellingPayment(false)
+    }
   }
 
   return (
@@ -289,11 +319,41 @@ function PricingPage() {
                   )}
                 </div>
 
-                <div className="mt-4 flex justify-end">
+                {cancelModalError && (
+                  <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                    {cancelModalError}
+                  </p>
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  {paymentModal.checkoutUrl && (
+                    <a
+                      href={paymentModal.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-surface-border bg-surface-elevated px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-surface-border hover:text-white"
+                    >
+                      <span>{t('pricingPage.modal.openCheckout')}</span>
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
+                  {paymentModal.orderCode && (
+                    <button
+                      type="button"
+                      onClick={handleCancelPaymentModal}
+                      disabled={cancellingPayment}
+                      className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {cancellingPayment ? t('pricingPage.modal.cancellingPayment') : t('pricingPage.modal.cancelPayment')}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={closePaymentModal}
-                    className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
+                    disabled={cancellingPayment}
+                    className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {t('pricingPage.modal.close')}
                   </button>

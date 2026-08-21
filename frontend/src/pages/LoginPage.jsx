@@ -25,6 +25,16 @@ function LoginPage() {
     return status === 'banned' || user?.is_banned === true || user?.isBanned === true
   }
 
+  const getBanErrorMessage = (payload, fallbackReason) => {
+    const user = payload?.user || payload?.data?.user || payload?.data || payload
+    const reason = payload?.ban_reason || payload?.banReason || payload?.reason || user?.ban_reason || user?.banReason || user?.reason || fallbackReason || ''
+    const baseMessage = t('loginPage.bannedError')
+    if (reason && typeof reason === 'string' && reason.trim()) {
+      return `${baseMessage} ${t('loginPage.banReasonPrefix')}: ${reason.trim()}`
+    }
+    return baseMessage
+  }
+
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }))
     setErrors((prev) => ({ ...prev, [field]: '' }))
@@ -63,7 +73,7 @@ function LoginPage() {
 
       if (isBannedUser(response)) {
         localStorage.removeItem('accessToken')
-        setSubmitError(t('loginPage.bannedError'))
+        setSubmitError(getBanErrorMessage(response))
         return
       }
 
@@ -83,7 +93,7 @@ function LoginPage() {
             const meResponse = await authApi.me()
             if (isBannedUser(meResponse)) {
               localStorage.removeItem('accessToken')
-              setSubmitError(t('loginPage.bannedError'))
+              setSubmitError(getBanErrorMessage(meResponse))
               return
             }
             role = extractRole(meResponse)
@@ -99,7 +109,20 @@ function LoginPage() {
       const isAdmin = normalizedRole === 'admin' || normalizedRole === 'administrator' || normalizedRole.includes('admin')
       navigate(isAdmin ? '/dashboard' : '/')
     } catch (error) {
-      setSubmitError(error.message || t('loginPage.submitError'))
+      const errData = error?.data || {}
+      const isBannedResponse =
+        error?.status === 403 ||
+        isBannedUser(errData) ||
+        String(errData?.error_code || errData?.code || '').toLowerCase().includes('ban') ||
+        String(error?.message || '').toLowerCase().includes('ban') ||
+        String(errData?.message || '').toLowerCase().includes('ban') ||
+        Boolean(errData?.ban_reason || errData?.banReason)
+
+      if (isBannedResponse) {
+        setSubmitError(getBanErrorMessage(errData, errData?.ban_reason || errData?.banReason || errData?.reason))
+      } else {
+        setSubmitError(error.message || t('loginPage.submitError'))
+      }
     } finally {
       setIsSubmitting(false)
     }

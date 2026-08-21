@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { useTheme } from '../App'
+import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
 import { authApi } from '../utils/api'
@@ -11,13 +11,14 @@ import BookmarkOverlay from './BookmarkOverlay'
 function Layout({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const { theme, setTheme } = useTheme()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
   const syncAuthState = async () => {
@@ -59,15 +60,24 @@ function Layout({ children }) {
     return () => window.removeEventListener('auth:updated', handleAuthUpdate)
   }, [])
 
-  const handleAuthAction = () => {
+  const handleAuthAction = async () => {
     if (isAuthenticated) {
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('rememberMe')
-      setIsAuthenticated(false)
-      setUserName('')
-      setIsAdmin(false)
-      window.dispatchEvent(new Event('auth:updated'))
-      navigate('/')
+      if (isLoggingOut) return
+      setIsLoggingOut(true)
+      try {
+        await authApi.logout()
+      } catch (error) {
+        console.warn('Logout API error:', error)
+      } finally {
+        localStorage.removeItem('accessToken')
+        localStorage.removeItem('rememberMe')
+        setIsAuthenticated(false)
+        setUserName('')
+        setIsAdmin(false)
+        setIsLoggingOut(false)
+        window.dispatchEvent(new Event('auth:updated'))
+        navigate('/')
+      }
       return
     }
 
@@ -112,6 +122,12 @@ function Layout({ children }) {
             >
               {t('nav.pricing')}
             </Link>
+            <Link
+              to="/feedbacks"
+              className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-surface-elevated hover:text-slate-200"
+            >
+              {lang === 'vi' ? 'Đánh giá' : 'Reviews'}
+            </Link>
             {['history', 'bookmark'].map((item) => (
               <button
                 key={item}
@@ -128,11 +144,11 @@ function Layout({ children }) {
               type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
               className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-surface-elevated hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
-              aria-label="Toggle theme"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
+              title={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
             >
               <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
-              <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              <span className="hidden sm:inline">{theme === 'dark' ? t('nav.themeLight') : t('nav.themeDark')}</span>
             </button>
 
             <LanguageSwitcher />
@@ -170,9 +186,12 @@ function Layout({ children }) {
             <button
               type="button"
               onClick={handleAuthAction}
-              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover sm:px-4"
+              disabled={isLoggingOut}
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
             >
-              {isAuthenticated ? 'Sign out' : t('nav.login')}
+              {isAuthenticated
+                ? (isLoggingOut ? t('nav.loggingOut') : t('nav.logout'))
+                : t('nav.login')}
             </button>
           </div>
         </div>
