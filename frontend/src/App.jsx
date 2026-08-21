@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { LanguageProvider } from './context/LanguageContext'
 import { HistoryProvider } from './context/HistoryContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 import Layout from './components/Layout'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
@@ -16,41 +17,11 @@ import VerifyEmailPage from './pages/VerifyEmailPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import ResetPasswordConfirmPage from './pages/ResetPasswordConfirmPage'
 import AccessDeniedPage from './pages/AccessDeniedPage'
-import { authApi } from './utils/api'
-
-import { ThemeProvider } from './context/ThemeContext'
 
 function AdminOnlyRoute({ children }) {
-  const [status, setStatus] = useState('checking')
+  const { isAdmin, isLoading } = useAuth()
 
-  useEffect(() => {
-    let isMounted = true
-
-    const checkRole = async () => {
-      const token = localStorage.getItem('accessToken')
-      if (!token) {
-        if (isMounted) setStatus('denied')
-        return
-      }
-
-      try {
-        const response = await authApi.me()
-        const user = response?.user || response?.data?.user || response?.data || response
-        const role = String(user?.role || user?.role_name || user?.roleName || '').trim().toLowerCase()
-        const isAdmin = role === 'admin' || role === 'administrator' || role.includes('admin')
-        if (isMounted) setStatus(isAdmin ? 'allowed' : 'denied')
-      } catch {
-        if (isMounted) setStatus('denied')
-      }
-    }
-
-    checkRole()
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  if (status === 'checking') {
+  if (isLoading) {
     return (
       <Layout>
         <div className="rounded-3xl border border-surface-border bg-surface-raised/70 p-8 text-center text-slate-300">
@@ -60,7 +31,7 @@ function AdminOnlyRoute({ children }) {
     )
   }
 
-  if (status === 'denied') {
+  if (!isAdmin) {
     return (
       <Layout>
         <AccessDeniedPage />
@@ -75,8 +46,9 @@ function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <HistoryProvider>
-          <BrowserRouter>
+        <AuthProvider>
+          <HistoryProvider>
+            <BrowserRouter>
             <Routes>
               <Route
                 path="/"
@@ -144,9 +116,10 @@ function App() {
             </Routes>
           </BrowserRouter>
         </HistoryProvider>
-      </LanguageProvider>
-    </ThemeProvider>
-  )
+      </AuthProvider>
+    </LanguageProvider>
+  </ThemeProvider>
+)
 }
 
 export default App

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
-import { authApi } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
 import LanguageSwitcher from './LanguageSwitcher'
 import HistoryOverlay from './HistoryOverlay'
 import BookmarkOverlay from './BookmarkOverlay'
@@ -14,73 +14,33 @@ function Layout({ children }) {
   const { t, lang } = useLanguage()
   const { isHistoryOpen, openHistory, closeHistory } = useHistory()
   const { theme, setTheme } = useTheme()
+  const { user, isAuthenticated, isAdmin, logout } = useAuth()
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [userName, setUserName] = useState('')
-  const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
-  const syncAuthState = async () => {
-    const token = localStorage.getItem('accessToken')
-
-    if (!token) {
-      setIsAuthenticated(false)
-      setUserName('')
-      setIsAdmin(false)
-      return
-    }
-
-    try {
-      const response = await authApi.me()
-      const user = response?.user || response?.data?.user || response?.data || response
-      const nextName = user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email || ''
-      const rawRole = String(user?.role || user?.role_name || user?.roleName || '').trim().toLowerCase()
-      const nextIsAdmin = rawRole === 'admin' || rawRole === 'administrator' || rawRole.includes('admin')
-      setIsAuthenticated(true)
-      setUserName(nextName)
-      setIsAdmin(nextIsAdmin)
-    } catch {
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('rememberMe')
-      setIsAuthenticated(false)
-      setUserName('')
-      setIsAdmin(false)
-    }
-  }
+  const userName = user?.displayName || user?.fullName || user?.email || ''
 
   useEffect(() => {
-    syncAuthState()
-
-    const handleAuthUpdate = () => {
-      syncAuthState()
-    }
-
-    window.addEventListener('auth:updated', handleAuthUpdate)
-    return () => window.removeEventListener('auth:updated', handleAuthUpdate)
-  }, [])
+    setIsMobileMenuOpen(false)
+  }, [location.pathname])
 
   const handleAuthAction = async () => {
     if (isAuthenticated) {
       if (isLoggingOut) return
       setIsLoggingOut(true)
       try {
-        await authApi.logout()
-      } catch (error) {
-        console.warn('Logout API error:', error)
+        await logout()
       } finally {
-        localStorage.removeItem('accessToken')
-        localStorage.removeItem('rememberMe')
-        setIsAuthenticated(false)
-        setUserName('')
-        setIsAdmin(false)
         setIsLoggingOut(false)
-        window.dispatchEvent(new Event('auth:updated'))
+        setIsMobileMenuOpen(false)
         navigate('/')
       }
       return
     }
 
+    setIsMobileMenuOpen(false)
     navigate('/login')
   }
 
@@ -93,8 +53,8 @@ function Layout({ children }) {
             : 'border-surface-border/80 bg-surface-base/80'
         }`}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link to="/" className="flex items-center gap-2.5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <Link to="/" className="flex shrink-0 items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/15 ring-1 ring-accent/30">
               <svg
                 className="h-5 w-5 text-accent"
@@ -110,7 +70,7 @@ function Layout({ children }) {
                 />
               </svg>
             </span>
-            <span className="hidden text-lg font-semibold text-white sm:inline">
+            <span className="text-base font-semibold text-white sm:text-lg">
               {t('appName')}
             </span>
           </Link>
@@ -139,11 +99,11 @@ function Layout({ children }) {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             <button
               type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-              className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-surface-elevated hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
+              className="flex items-center gap-1.5 rounded-lg border border-surface-border bg-surface-raised px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-surface-elevated hover:text-slate-900 dark:text-slate-200 dark:hover:text-white sm:px-3"
               aria-label={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
               title={theme === 'dark' ? t('nav.themeToggleLight') : t('nav.themeToggleDark')}
             >
@@ -157,7 +117,7 @@ function Layout({ children }) {
               <button
                 type="button"
                 onClick={() => navigate('/dashboard')}
-                className="rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
+                className="hidden rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white sm:inline-flex"
               >
                 {t('nav.dashboard')}
               </button>
@@ -187,14 +147,110 @@ function Layout({ children }) {
               type="button"
               onClick={handleAuthAction}
               disabled={isLoggingOut}
-              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
+              className="hidden rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:inline-flex sm:px-4"
             >
               {isAuthenticated
                 ? (isLoggingOut ? t('nav.loggingOut') : t('nav.logout'))
                 : t('nav.login')}
             </button>
+
+            {/* Mobile Hamburger Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-surface-border bg-surface-raised text-slate-300 transition hover:bg-surface-elevated hover:text-white md:hidden"
+              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? (
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
+
+        {/* Mobile Navigation Drawer / Dropdown */}
+        {isMobileMenuOpen && (
+          <div className="border-t border-surface-border bg-surface-raised/95 px-4 py-4 backdrop-blur-xl md:hidden animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex flex-col gap-1.5">
+              <Link
+                to="/pricing"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+              >
+                <span>{t('nav.pricing')}</span>
+              </Link>
+              <Link
+                to="/feedbacks"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+              >
+                <span>{lang === 'vi' ? 'Đánh giá' : 'Reviews'}</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false)
+                  openHistory()
+                }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+              >
+                <span>{t('nav.history')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false)
+                  setIsBookmarkOpen(true)
+                }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+              >
+                <span>{t('nav.bookmark')}</span>
+              </button>
+
+              <div className="my-2 border-t border-surface-border" />
+
+              {isAuthenticated && (
+                <Link
+                  to="/profile"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-surface-elevated hover:text-white"
+                >
+                  <span>👤</span>
+                  <span>{userName ? `${t('nav.myAccount')} (${userName})` : t('nav.myAccount')}</span>
+                </Link>
+              )}
+
+              {isAuthenticated && isAdmin && (
+                <Link
+                  to="/dashboard"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-accent transition hover:bg-surface-elevated hover:text-accent-hover"
+                >
+                  <span>📊</span>
+                  <span>{t('nav.dashboard')}</span>
+                </Link>
+              )}
+
+              <button
+                type="button"
+                onClick={handleAuthAction}
+                disabled={isLoggingOut}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-surface-base shadow-md transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isAuthenticated
+                  ? (isLoggingOut ? t('nav.loggingOut') : t('nav.logout'))
+                  : t('nav.login')}
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="mx-auto w-full max-w-[1800px] flex-1 px-4 py-6 sm:px-8 sm:py-8 lg:px-10">

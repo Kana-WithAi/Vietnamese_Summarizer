@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { paymentsApi, subscriptionsApi } from '../utils/api'
 import QRCode from 'qrcode'
 
 function PricingPage() {
   const navigate = useNavigate()
   const { t, lang } = useLanguage()
+  const { tier: authTier, refreshUser } = useAuth()
   const [plans, setPlans] = useState([])
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [plansError, setPlansError] = useState('')
-  const [currentTier, setCurrentTier] = useState('free')
   const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState('')
   const [paymentModal, setPaymentModal] = useState({
     open: false,
@@ -22,6 +23,8 @@ function PricingPage() {
   })
   const [cancellingPayment, setCancellingPayment] = useState(false)
   const [cancelModalError, setCancelModalError] = useState('')
+
+  const currentTier = authTier || 'free'
 
   const getPlanLocaleKey = (planKey) => {
     if (planKey.includes('free')) return 'free'
@@ -51,15 +54,15 @@ function PricingPage() {
   }
 
   useEffect(() => {
+    let isMounted = true
+
     const loadSubscriptionsData = async () => {
       setLoadingPlans(true)
       setPlansError('')
 
       try {
-        const [plansResponse, subResponse] = await Promise.all([
-          subscriptionsApi.plans(),
-          subscriptionsApi.me().catch(() => null),
-        ])
+        const plansResponse = await subscriptionsApi.plans()
+        if (!isMounted) return
 
         const plansPayload = plansResponse?.data?.plans || plansResponse?.data || plansResponse || []
         const normalizedPlans = Array.isArray(plansPayload)
@@ -79,26 +82,22 @@ function PricingPage() {
           : []
 
         setPlans(normalizedPlans)
-
-        const subPayload = subResponse?.data || subResponse || {}
-        const tier =
-          subPayload?.tier ||
-          subPayload?.plan?.name ||
-          subPayload?.plan?.tier ||
-          subPayload?.subscription?.tier ||
-          subPayload?.subscription?.plan?.name ||
-          'free'
-
-        setCurrentTier(String(tier).toLowerCase())
       } catch (error) {
+        if (!isMounted) return
         setPlansError(error?.message || t('pricingPage.errors.loadPlans'))
       } finally {
-        setLoadingPlans(false)
+        if (isMounted) {
+          setLoadingPlans(false)
+        }
       }
     }
 
     loadSubscriptionsData()
-  }, [lang])
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const sortedPlans = useMemo(() => {
     const rank = (key) => {
@@ -260,24 +259,25 @@ function PricingPage() {
       </section>
 
       {paymentModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-4xl overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-2xl shadow-black/40">
-            <div className="flex items-start justify-between gap-4 border-b border-surface-border px-6 py-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-3 sm:p-6 backdrop-blur-sm">
+          <div className="flex max-h-[92dvh] w-full max-w-4xl flex-col rounded-3xl border border-surface-border bg-surface-raised shadow-2xl shadow-black/40">
+            {/* Modal Header */}
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-border px-5 py-4 sm:px-6 sm:py-5">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
                   {t('pricingPage.modal.title')}
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
+                <h2 className="mt-1 text-xl font-semibold text-white sm:text-2xl">
                   {t('pricingPage.modal.scanTitle')}
                 </h2>
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-1 text-xs text-slate-400 sm:text-sm">
                   {t('pricingPage.modal.scanSubtitle')}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closePaymentModal}
-                className="rounded-full p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
+                className="shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-white"
                 aria-label={t('pricingPage.modal.close')}
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -286,107 +286,110 @@ function PricingPage() {
               </button>
             </div>
 
-            <div className="grid gap-6 p-6 lg:grid-cols-[420px_minmax(0,1fr)]">
-              <div className="rounded-3xl border border-surface-border bg-surface-base p-5">
-                <div className="flex items-center justify-center rounded-2xl bg-white p-4">
-                  {paymentModal.qrDataUrl ? (
-                    <img
-                      src={paymentModal.qrDataUrl}
-                      alt={lang === 'vi' ? 'Mã QR thanh toán' : 'Payment QR code'}
-                      className="h-auto w-full max-w-[320px] rounded-xl"
-                    />
-                  ) : (
-                    <div className="flex h-[320px] w-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500">
-                      {t('pricingPage.modal.generatingQr')}
-                    </div>
-                  )}
-                </div>
+            {/* Modal Scrollable Body */}
+            <div className="overflow-y-auto p-4 sm:p-6">
+              <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+                <div className="rounded-3xl border border-surface-border bg-surface-base p-4 sm:p-5">
+                  <div className="flex items-center justify-center rounded-2xl bg-white p-3 sm:p-4">
+                    {paymentModal.qrDataUrl ? (
+                      <img
+                        src={paymentModal.qrDataUrl}
+                        alt={lang === 'vi' ? 'Mã QR thanh toán' : 'Payment QR code'}
+                        className="h-auto w-full max-w-[240px] sm:max-w-[300px] rounded-xl"
+                      />
+                    ) : (
+                      <div className="flex h-[240px] sm:h-[300px] w-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500">
+                        {t('pricingPage.modal.generatingQr')}
+                      </div>
+                    )}
+                  </div>
 
-                <div className="mt-4 space-y-3 rounded-2xl border border-surface-border bg-surface-raised p-4 text-sm text-slate-300">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">{t('pricingPage.modal.planLabel')}</span>
-                    <span className="font-semibold text-white">{paymentModal.planName}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-slate-500">{t('pricingPage.modal.amountLabel')}</span>
-                    <span className="font-semibold text-white">{formatPrice(paymentModal.amount)}</span>
-                  </div>
-                  {paymentModal.orderCode && (
+                  <div className="mt-4 space-y-3 rounded-2xl border border-surface-border bg-surface-raised p-4 text-sm text-slate-300">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">orderCode</span>
-                      <span className="font-semibold text-white">{paymentModal.orderCode}</span>
+                      <span className="text-slate-500">{t('pricingPage.modal.planLabel')}</span>
+                      <span className="font-semibold text-white">{paymentModal.planName}</span>
                     </div>
-                  )}
-                </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">{t('pricingPage.modal.amountLabel')}</span>
+                      <span className="font-semibold text-white">{formatPrice(paymentModal.amount)}</span>
+                    </div>
+                    {paymentModal.orderCode && (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-500">orderCode</span>
+                        <span className="font-semibold text-white">{paymentModal.orderCode}</span>
+                      </div>
+                    )}
+                  </div>
 
-                {cancelModalError && (
-                  <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                    {cancelModalError}
-                  </p>
-                )}
-
-                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                  {paymentModal.checkoutUrl && (
-                    <a
-                      href={paymentModal.checkoutUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-2xl border border-surface-border bg-surface-elevated px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-surface-border hover:text-white"
-                    >
-                      <span>{t('pricingPage.modal.openCheckout')}</span>
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
+                  {cancelModalError && (
+                    <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                      {cancelModalError}
+                    </p>
                   )}
-                  {paymentModal.orderCode && (
+
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    {paymentModal.checkoutUrl && (
+                      <a
+                        href={paymentModal.checkoutUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-2xl border border-surface-border bg-surface-elevated px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-surface-border hover:text-white"
+                      >
+                        <span>{t('pricingPage.modal.openCheckout')}</span>
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    )}
+                    {paymentModal.orderCode && (
+                      <button
+                        type="button"
+                        onClick={handleCancelPaymentModal}
+                        disabled={cancellingPayment}
+                        className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {cancellingPayment ? t('pricingPage.modal.cancellingPayment') : t('pricingPage.modal.cancelPayment')}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={handleCancelPaymentModal}
+                      onClick={closePaymentModal}
                       disabled={cancellingPayment}
-                      className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {cancellingPayment ? t('pricingPage.modal.cancellingPayment') : t('pricingPage.modal.cancelPayment')}
+                      {t('pricingPage.modal.close')}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={closePaymentModal}
-                    disabled={cancellingPayment}
-                    className="rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('pricingPage.modal.close')}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-base p-5">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
-                    {t('pricingPage.modal.instructions')}
-                  </p>
-                  <h3 className="mt-2 text-xl font-semibold text-white">
-                    {t('pricingPage.modal.howToPay')}
-                  </h3>
+                  </div>
                 </div>
 
-                <ol className="space-y-3 text-sm text-slate-300">
-                  <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {t('pricingPage.modal.step1')}
-                  </li>
-                  <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {t('pricingPage.modal.step2')}
-                  </li>
-                  <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {t('pricingPage.modal.step3')}
-                  </li>
-                  <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                    {t('pricingPage.modal.step4')}
-                  </li>
-                </ol>
+                <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-base p-4 sm:p-5">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                      {t('pricingPage.modal.instructions')}
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-white sm:text-xl">
+                      {t('pricingPage.modal.howToPay')}
+                    </h3>
+                  </div>
 
-                <div className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-slate-200">
-                  {t('pricingPage.modal.note')}
+                  <ol className="space-y-2.5 text-xs text-slate-300 sm:text-sm">
+                    <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
+                      {t('pricingPage.modal.step1')}
+                    </li>
+                    <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
+                      {t('pricingPage.modal.step2')}
+                    </li>
+                    <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
+                      {t('pricingPage.modal.step3')}
+                    </li>
+                    <li className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
+                      {t('pricingPage.modal.step4')}
+                    </li>
+                  </ol>
+
+                  <div className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-xs text-slate-200 sm:text-sm">
+                    {t('pricingPage.modal.note')}
+                  </div>
                 </div>
               </div>
             </div>

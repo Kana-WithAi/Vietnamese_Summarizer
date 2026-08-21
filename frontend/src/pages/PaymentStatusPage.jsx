@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { paymentsApi } from '../utils/api'
 
 function PaymentStatusPage() {
   const { lang } = useLanguage()
+  const { refreshUser } = useAuth()
   const [searchParams] = useSearchParams()
   const [statusData, setStatusData] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -13,6 +15,8 @@ function PaymentStatusPage() {
   const orderCode = searchParams.get('orderCode') || searchParams.get('order_code') || ''
 
   useEffect(() => {
+    let isMounted = true
+
     const loadStatus = async () => {
       if (!orderCode) return
 
@@ -21,16 +25,27 @@ function PaymentStatusPage() {
 
       try {
         const response = await paymentsApi.status(orderCode)
-        setStatusData(response?.data || response)
+        const data = response?.data || response
+        if (!isMounted) return
+        setStatusData(data)
+
+        const status = String(data?.status || data?.payment_status || '').toLowerCase()
+        if (status === 'paid' || status === 'completed' || status === 'success') {
+          refreshUser(true)
+        }
       } catch (nextError) {
+        if (!isMounted) return
         setError(nextError?.message || (lang === 'vi' ? 'Không thể tải trạng thái thanh toán.' : 'Unable to load payment status.'))
       } finally {
-        setIsLoading(false)
+        if (isMounted) setIsLoading(false)
       }
     }
 
     loadStatus()
-  }, [orderCode, lang])
+    return () => {
+      isMounted = false
+    }
+  }, [orderCode])
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

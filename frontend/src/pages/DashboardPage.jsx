@@ -130,7 +130,7 @@ function FileFormatPieChart({ data = [], lang, formatMetric }) {
       </div>
 
       {/* Breakdown / Legend List */}
-      <div className="w-full flex-1 space-y-2.5 max-w-sm">
+      <div className="w-full flex-1 space-y-2.5 max-w-sm min-w-0">
         {slices.map((slice, index) => {
           const isHovered = hoveredIndex === index
           return (
@@ -1007,31 +1007,31 @@ function DashboardPage() {
 
   const renderAnalyticsReports = () => (
     <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.overview')}</p>
           <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo phân tích' : 'Analytics reports'}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Từ:' : 'From:'}</span>
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-xs text-slate-400 shrink-0">{lang === 'vi' ? 'Từ:' : 'From:'}</span>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+              className="w-full sm:w-auto rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
             />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Đến:' : 'To:'}</span>
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-xs text-slate-400 shrink-0">{lang === 'vi' ? 'Đến:' : 'To:'}</span>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+              className="w-full sm:w-auto rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
             />
           </div>
-          <button type="button" onClick={loadAnalytics} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
+          <button type="button" onClick={loadAnalytics} className="w-full sm:w-auto rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
             {lang === 'vi' ? 'Làm mới' : 'Refresh'}
           </button>
         </div>
@@ -1165,11 +1165,11 @@ function DashboardPage() {
         <h2 className="mt-2 text-xl font-semibold text-white">{t('dashboard.userManagementTitle')}</h2>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <input value={userFiltersDraft.search} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, search: e.target.value }))} placeholder={lang === 'vi' ? 'Tìm kiếm' : 'Search'} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <input value={userFiltersDraft.email} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, email: e.target.value }))} placeholder={t('dashboard.filterByEmail')} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <input value={userFiltersDraft.name} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, name: e.target.value }))} placeholder={t('dashboard.filterByName')} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <select value={userFiltersDraft.status} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, status: e.target.value }))} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <input value={userFiltersDraft.search} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, search: e.target.value }))} placeholder={lang === 'vi' ? 'Tìm kiếm' : 'Search'} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <input value={userFiltersDraft.email} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, email: e.target.value }))} placeholder={t('dashboard.filterByEmail')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <input value={userFiltersDraft.name} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, name: e.target.value }))} placeholder={t('dashboard.filterByName')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <select value={userFiltersDraft.status} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, status: e.target.value }))} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
           <option value="">{lang === 'vi' ? 'Tất cả trạng thái' : 'All status'}</option>
           <option value="active">active</option>
           <option value="banned">banned</option>
@@ -1190,43 +1190,45 @@ function DashboardPage() {
       {usersLoading ? (
         <p className="text-sm text-slate-400">{lang === 'vi' ? 'Đang tải người dùng...' : 'Loading users...'}</p>
       ) : (
-        <div className="overflow-hidden rounded-3xl border border-surface-border">
-          <div className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            <span>{t('dashboard.userName')}</span>
-            <span>{t('dashboard.userEmail')}</span>
-            <span>{t('dashboard.userStatus')}</span>
-            <span>{t('dashboard.banReason')}</span>
-            <span>{t('dashboard.action')}</span>
-          </div>
-          <div className="divide-y divide-surface-border bg-surface-raised/30">
-            {users.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
-            ) : (
-              users.map((user, index) => {
-                const status = String(user?.status || '').toLowerCase()
-                const isBanned = status === 'banned' || status === 'suspended'
-                const banReason = user?.ban_reason || user?.banReason || user?.reason || '-'
-                return (
-                  <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
-                    <span className="truncate text-white">{user?.full_name || user?.fullName || user?.name || '-'}</span>
-                    <span className="truncate text-slate-300">{user?.email || '-'}</span>
-                    <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
-                      {user?.status || '-'}
-                    </span>
-                    <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
-                      {banReason}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleBan(user)}
-                      className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${isBanned ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'}`}
-                    >
-                      {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
-                    </button>
-                  </div>
-                )
-              })
-            )}
+        <div className="overflow-x-auto rounded-3xl border border-surface-border">
+          <div className="min-w-[640px]">
+            <div className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              <span>{t('dashboard.userName')}</span>
+              <span>{t('dashboard.userEmail')}</span>
+              <span>{t('dashboard.userStatus')}</span>
+              <span>{t('dashboard.banReason')}</span>
+              <span>{t('dashboard.action')}</span>
+            </div>
+            <div className="divide-y divide-surface-border bg-surface-raised/30">
+              {users.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
+              ) : (
+                users.map((user, index) => {
+                  const status = String(user?.status || '').toLowerCase()
+                  const isBanned = status === 'banned' || status === 'suspended'
+                  const banReason = user?.ban_reason || user?.banReason || user?.reason || '-'
+                  return (
+                    <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
+                      <span className="truncate text-white">{user?.full_name || user?.fullName || user?.name || '-'}</span>
+                      <span className="truncate text-slate-300">{user?.email || '-'}</span>
+                      <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
+                        {user?.status || '-'}
+                      </span>
+                      <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
+                        {banReason}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBan(user)}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${isBanned ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'}`}
+                      >
+                        {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
+                      </button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1316,12 +1318,12 @@ function DashboardPage() {
 
   const renderFeedbackModeration = () => (
     <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.feedbackModeration')}</p>
           <h2 className="mt-2 text-xl font-semibold text-white">{t('dashboard.feedbackModerationUi.title')}</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={feedbackReplyStatus}
             onChange={(e) => { setFeedbackReplyStatus(e.target.value); setFeedbackPage(1) }}
@@ -1382,7 +1384,7 @@ function DashboardPage() {
                   </p>
                   <p className="mt-1 text-xs text-slate-500">{t('dashboard.feedbackModerationUi.ratingLabel')}: {getFeedbackRatingLabel(feedback?.rating, t)}</p>
 
-                  <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
+                  <div className="mt-3 grid gap-2 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)_auto]">
                     <select
                       value={selectedTemplateValue}
                       onChange={(e) => {
@@ -1401,7 +1403,7 @@ function DashboardPage() {
                         }))
                       }}
                       disabled={isReplied}
-                      className="rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+                      className="w-full min-w-0 rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
                     >
                       <option value="">{t('dashboard.feedbackTemplates.select')}</option>
                       <option value="custom">{t('dashboard.feedbackTemplates.custom')}</option>
@@ -1420,9 +1422,9 @@ function DashboardPage() {
                       placeholder={t('dashboard.feedbackModerationUi.replyPlaceholder')}
                       readOnly={!isCustomTemplate}
                       disabled={isReplied || !isCustomTemplate}
-                      className={`rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 ${!isCustomTemplate ? 'cursor-not-allowed opacity-80' : ''}`}
+                      className={`w-full min-w-0 rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 ${!isCustomTemplate ? 'cursor-not-allowed opacity-80' : ''}`}
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <button type="button" onClick={() => handleReplyFeedback(feedback, index)} disabled={isReplied} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-70">
                         {isReplied ? t('dashboard.feedbackModerationUi.repliedButton') : t('dashboard.feedbackModerationUi.reply')}
                       </button>
@@ -1475,7 +1477,7 @@ function DashboardPage() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
       <aside className="hidden rounded-3xl border border-surface-border bg-surface-raised p-6 lg:block">
         <div className="mb-8">
           <div className="text-sm font-semibold uppercase tracking-[0.32em] text-slate-500">
@@ -1500,16 +1502,45 @@ function DashboardPage() {
         </nav>
       </aside>
 
-      <div className="space-y-6">
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="rounded-xl border border-surface-border bg-surface-raised px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
-          >
-            {t('dashboard.switchToUserPage')}
-          </button>
+      <div className="min-w-0 space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl font-bold text-white lg:hidden">
+            {t(navItems.find((n) => n.id === activeNav)?.labelKey || 'nav.dashboard')}
+          </h1>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="rounded-xl border border-surface-border bg-surface-raised px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
+            >
+              {t('dashboard.switchToUserPage')}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile & Tablet Tab Selector (visible on < lg) */}
+        <div className="rounded-2xl border border-surface-border bg-surface-raised p-2 lg:hidden">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {navItems.map((item) => {
+              const isActive = activeNav === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveNav(item.id)}
+                  className={`shrink-0 rounded-xl px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition ${
+                    isActive
+                      ? 'bg-accent text-surface-base shadow-sm shadow-accent/25'
+                      : 'border border-surface-border bg-surface-base text-slate-300 hover:border-accent/40 hover:text-white'
+                  }`}
+                >
+                  {t(item.labelKey)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {renderPageContent()}
       </div>
 

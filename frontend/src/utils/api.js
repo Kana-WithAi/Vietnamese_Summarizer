@@ -239,6 +239,66 @@ function buildQuery(params = {}) {
   return content ? `?${content}` : ''
 }
 
+const cacheStore = new Map()
+const inFlightStore = new Map()
+
+export function clearApiCache(prefix = '') {
+  if (!prefix) {
+    cacheStore.clear()
+    inFlightStore.clear()
+    return
+  }
+  for (const key of cacheStore.keys()) {
+    if (key.includes(prefix)) {
+      cacheStore.delete(key)
+    }
+  }
+  for (const key of inFlightStore.keys()) {
+    if (key.includes(prefix)) {
+      inFlightStore.delete(key)
+    }
+  }
+}
+
+export async function cachedRequest(path, options = {}, ttlMs = 3 * 60 * 1000) {
+  const method = options.method || 'GET'
+  if (method !== 'GET') {
+    return request(path, options)
+  }
+
+  const token = options.auth ? localStorage.getItem('accessToken') : ''
+  const cacheKey = `${options.auth ? `auth:${token}:` : 'pub:'}${path}`
+
+  if (!options.force) {
+    const cached = cacheStore.get(cacheKey)
+    if (cached && Date.now() < cached.expiry) {
+      return cached.data
+    }
+
+    const inFlight = inFlightStore.get(cacheKey)
+    if (inFlight) {
+      return inFlight
+    }
+  }
+
+  const promise = request(path, options)
+    .then((data) => {
+      cacheStore.set(cacheKey, {
+        data,
+        expiry: Date.now() + ttlMs,
+      })
+      return data
+    })
+    .finally(() => {
+      setTimeout(() => {
+        inFlightStore.delete(cacheKey)
+      }, 300)
+    })
+
+  inFlightStore.set(cacheKey, promise)
+  return promise
+}
+
 export const authApi = {
   login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
   logout: () => request('/auth/logout', { method: 'POST', auth: true }),
@@ -249,13 +309,17 @@ export const authApi = {
   verifyResetOtp: (payload) => request('/auth/verify-reset-otp', { method: 'POST', body: payload }),
   resetPassword: (payload) => request('/auth/reset-password', { method: 'POST', body: payload }),
   changePassword: (payload) => request('/auth/change-password', { method: 'POST', body: payload, auth: true }),
-  updateProfile: (payload) => request('/auth/profile', { method: 'PUT', body: payload, auth: true }),
-  me: () => request('/auth/me', { auth: true }),
+  updateProfile: async (payload) => {
+    const res = await request('/auth/profile', { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/auth/me')
+    return res
+  },
+  me: (force = false) => cachedRequest('/auth/me', { auth: true, force }, 60 * 1000),
 }
 
 export const subscriptionsApi = {
-  plans: () => request('/subscriptions/plans'),
-  me: () => request('/subscriptions/me', { auth: true }),
+  plans: (force = false) => cachedRequest('/subscriptions/plans', { force }, 5 * 60 * 1000),
+  me: (force = false) => cachedRequest('/subscriptions/me', { auth: true, force }, 60 * 1000),
 }
 
 export const summarizeApi = {
@@ -300,15 +364,30 @@ export const ocrApi = {
 }
 
 export const feedbacksApi = {
-  list: (params = {}) => request(`/feedbacks${buildQuery(params)}`),
-  criteria: (params = {}) => request(`/feedbacks/criteria${buildQuery(params)}`),
-  create: (payload) => request('/feedbacks', { method: 'POST', body: payload, auth: true }),
-  update: (id, payload) => request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true }),
-  remove: (id) => request(`/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+  list: (params = {}, force = false) => cachedRequest(`/feedbacks${buildQuery(params)}`, { force }, 60 * 1000),
+  criteria: (params = {}, force = false) => cachedRequest(`/feedbacks/criteria${buildQuery(params)}`, { force }, 10 * 60 * 1000),
+  create: async (payload) => {
+    const res = await request('/feedbacks', { method: 'POST', body: payload, auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
+  update: async (id, payload) => {
+    const res = await request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
+  remove: async (id) => {
+    const res = await request(`/feedbacks/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
 }
 
 export const historyApi = {
-  list: (params = {}) => {
+  list: (params = {}, force = false) => {
     const query = new URLSearchParams()
 
     if (params.page) query.set('page', String(params.page))
@@ -318,29 +397,60 @@ export const historyApi = {
     }
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
-    return request(`/history${suffix}`, { auth: true })
+    return cachedRequest(`/history${suffix}`, { auth: true, force }, 20 * 1000)
   },
-  getById: (id) => request(`/history/${id}`, { auth: true }),
-  updateTitle: (id, title) => request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true }),
-  setBookmark: (id, isBookmarked) =>
-    request(`/history/${id}/bookmark`, {
+  getById: (id, force = false) => cachedRequest(`/history/${id}`, { auth: true, force }, 60 * 1000),
+  updateTitle: async (id, title) => {
+    const res = await request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  setBookmark: async (id, isBookmarked) => {
+    const res = await request(`/history/${id}/bookmark`, {
       method: 'PUT',
       body: { is_bookmarked: Boolean(isBookmarked) },
       auth: true,
-    }),
-  update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
-  removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
-  removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
+    })
+    clearApiCache('/history')
+    return res
+  },
+  update: async (id, payload) => {
+    const res = await request(`/history/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  removeAll: async () => {
+    const res = await request('/history/all', { method: 'DELETE', auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  removeById: async (id) => {
+    const res = await request(`/history/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/history')
+    return res
+  },
 }
 
 export const collectionsApi = {
-  list: (params = {}) => request(`/collections${buildQuery(params)}`, { auth: true }),
-  create: (payload) => request('/collections', { method: 'POST', body: payload, auth: true }),
+  list: (params = {}, force = false) => cachedRequest(`/collections${buildQuery(params)}`, { auth: true, force }, 2 * 60 * 1000),
+  create: async (payload) => {
+    const res = await request('/collections', { method: 'POST', body: payload, auth: true })
+    clearApiCache('/collections')
+    return res
+  },
   getById: (id) => request(`/collections/${id}`, { auth: true }),
   getHistories: (id, params = {}) => request(`/collections/${id}/histories${buildQuery(params)}`, { auth: true }),
   getItems: (id, params = {}) => request(`/collections/${id}/items${buildQuery(params)}`, { auth: true }),
-  update: (id, payload) => request(`/collections/${id}`, { method: 'PUT', body: payload, auth: true }),
-  remove: (id) => request(`/collections/${id}`, { method: 'DELETE', auth: true }),
+  update: async (id, payload) => {
+    const res = await request(`/collections/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/collections')
+    return res
+  },
+  remove: async (id) => {
+    const res = await request(`/collections/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/collections')
+    return res
+  },
 }
 
 export const adminApi = {
@@ -350,10 +460,25 @@ export const adminApi = {
     unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }),
   },
   subscriptions: {
-    list: () => request('/admin/subscriptions', { auth: true }),
-    create: (payload) => request('/admin/subscriptions', { method: 'POST', body: payload, auth: true }),
-    update: (id, payload) => request(`/admin/subscriptions/${id}`, { method: 'PUT', body: payload, auth: true }),
-    remove: (id) => request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true }),
+    list: (force = false) => cachedRequest('/admin/subscriptions', { auth: true, force }, 3 * 60 * 1000),
+    create: async (payload) => {
+      const res = await request('/admin/subscriptions', { method: 'POST', body: payload, auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
+    update: async (id, payload) => {
+      const res = await request(`/admin/subscriptions/${id}`, { method: 'PUT', body: payload, auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
+    remove: async (id) => {
+      const res = await request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
   },
   feedbacks: {
     list: ({ page, limit, rating, admin_replied } = {}) =>
@@ -361,9 +486,9 @@ export const adminApi = {
         `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied })}`,
         { auth: true },
       ),
-    replyTemplates: () => request('/admin/feedbacks/reply-templates', { auth: true }),
-    reply: (id, payload) =>
-      request(`/admin/feedbacks/${id}/reply`, {
+    replyTemplates: (force = false) => cachedRequest('/admin/feedbacks/reply-templates', { auth: true, force }, 10 * 60 * 1000),
+    reply: async (id, payload) => {
+      const res = await request(`/admin/feedbacks/${id}/reply`, {
         method: 'POST',
         body: {
           template_type: payload?.template_type,
@@ -371,8 +496,17 @@ export const adminApi = {
           admin_replied: payload?.admin_replied,
         },
         auth: true,
-      }),
-    remove: (id) => request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+      })
+      clearApiCache('/admin/feedbacks')
+      clearApiCache('/feedbacks')
+      return res
+    },
+    remove: async (id) => {
+      const res = await request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true })
+      clearApiCache('/admin/feedbacks')
+      clearApiCache('/feedbacks')
+      return res
+    },
   },
   analytics: {
     users: (params = {}) => request(`/admin/analytics/users${buildQuery(params)}`, { auth: true }),

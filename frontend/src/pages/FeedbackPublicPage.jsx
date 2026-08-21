@@ -47,24 +47,31 @@ function FeedbackPublicPage() {
   const [page, setPage] = useState(1)
 
   useEffect(() => {
+    let isMounted = true
+
     const loadFeedbacks = async () => {
       setLoading(true)
       setError('')
 
       try {
         const response = await feedbacksApi.list({ page, limit: DEFAULT_PAGE_SIZE })
+        if (!isMounted) return
         const normalized = normalizeFeedbackList(response)
         setItems(normalized)
       } catch (loadError) {
+        if (!isMounted) return
         setItems([])
         setError(loadError?.message || (lang === 'vi' ? 'Không thể tải đánh giá công khai.' : 'Unable to load public reviews.'))
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
 
     loadFeedbacks()
-  }, [lang, page])
+    return () => {
+      isMounted = false
+    }
+  }, [page])
 
   const filteredItems = useMemo(() => {
     if (ratingFilter === 'all') return items

@@ -397,7 +397,7 @@ function HistoryOverlay() {
     }
 
     const handleHistoryUpdate = () => {
-      if (isLoggedIn) {
+      if (isLoggedIn && isHistoryOpen) {
         loadHistoryList(page)
         loadCollections()
       }
@@ -415,11 +415,9 @@ function HistoryOverlay() {
         setSelectedItem(null)
         setError(t('historyOverlay.loginRequired'))
       } else {
-        loadHistoryList(1)
         loadCollections()
+        loadHistoryList(page)
       }
-
-      setPage(1)
     }
 
     return () => {
@@ -427,12 +425,7 @@ function HistoryOverlay() {
       document.removeEventListener('keydown', handleEscape)
       document.body.style.overflow = 'unset'
     }
-  }, [isHistoryOpen, closeHistory, isLoggedIn, t, page])
-
-  useEffect(() => {
-    if (!isHistoryOpen || !isLoggedIn) return
-    loadHistoryList(page)
-  }, [page, isHistoryOpen, isLoggedIn])
+  }, [isHistoryOpen, page, isLoggedIn])
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -904,18 +897,16 @@ function HistoryOverlay() {
     <>
       {isHistoryOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity duration-300"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
           onClick={closeHistory}
-          style={{ top: '60px', bottom: '48px' }}
         />
       )}
 
       <div
         ref={overlayRef}
-        className={`fixed right-0 z-50 w-1/5 transform transition-transform duration-300 ease-out bg-surface-raised/80 border-l border-surface-border/50 backdrop-blur-xl shadow-2xl shadow-black/30 flex flex-col ${
+        className={`fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-full flex-col border-l border-surface-border/60 bg-surface-raised/95 shadow-2xl shadow-black/50 backdrop-blur-2xl transition-transform duration-300 ease-out sm:w-[420px] sm:max-w-md md:w-[460px] ${
           isHistoryOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{ top: '60px', bottom: '48px' }}
       >
         <div className="flex items-center justify-between border-b border-surface-border/30 px-5 py-4">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wider">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { collectionsApi, feedbacksApi, historyApi, ocrApi, subscriptionsApi, summarizeApi } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import { collectionsApi, feedbacksApi, historyApi, ocrApi, summarizeApi } from '../utils/api'
 import OcrOutputBox from '../components/OcrOutputBox'
 import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
@@ -293,6 +294,7 @@ function getFileUploadErrorMessage(error, t, lang) {
 
 function HomePage() {
   const { t, lang } = useLanguage()
+  const { tier: userTier, maxFolders, isAuthenticated } = useAuth()
   const fileInputRef = useRef(null)
 
   const [inputText, setInputText] = useState('')
@@ -318,8 +320,6 @@ function HomePage() {
   const [selectedCollectionColor, setSelectedCollectionColor] = useState('')
   const [collections, setCollections] = useState([])
   const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
-  const [maxFolders, setMaxFolders] = useState(0)
-  const [userTier, setUserTier] = useState('free')
   const [currentSummaryId, setCurrentSummaryId] = useState('')
   const saveContainerRef = useRef(null)
   const downloadToggleRef = useRef(null)
@@ -476,64 +476,7 @@ function HomePage() {
     return Boolean(textFromOcr)
   }
 
-  useEffect(() => {
-    const loadUserSubscription = async () => {
-      const token = localStorage.getItem('accessToken')
-      if (!token) {
-        setUserTier('free')
-        setMaxFolders(0)
-        return
-      }
 
-      try {
-        const [subResponse, plansResponse] = await Promise.all([
-          subscriptionsApi.me().catch(() => null),
-          subscriptionsApi.plans().catch(() => null),
-        ])
-
-        const subData = subResponse?.data || subResponse || {}
-        const planObj = subData?.plan || subData?.subscription?.plan || subData?.subscription || {}
-
-        let folders =
-          subData?.max_folders ??
-          subData?.maxFolders ??
-          planObj?.max_folders ??
-          planObj?.maxFolders ??
-          null
-
-        if (folders === null && plansResponse) {
-          const plansList = plansResponse?.data?.plans || plansResponse?.data || plansResponse || []
-          const currentPlanId = subData?.plan_id || subData?.planId || planObj?.id || planObj?.plan_id
-          const currentTier = String(subData?.tier || planObj?.tier || planObj?.name || 'free').toLowerCase()
-
-          if (Array.isArray(plansList)) {
-            const matched = plansList.find((p) =>
-              (currentPlanId && (p?.id === currentPlanId || p?.plan_id === currentPlanId)) ||
-              (String(p?.name || p?.tier || '').toLowerCase() === currentTier),
-            )
-            if (matched) {
-              folders = matched?.max_folders ?? matched?.maxFolders ?? null
-            }
-          }
-        }
-
-        const tier =
-          subData?.tier ||
-          subData?.tier_name ||
-          planObj?.tier ||
-          planObj?.name ||
-          'free'
-
-        setUserTier(String(tier).toLowerCase())
-        setMaxFolders(Number(folders ?? 0))
-      } catch {
-        setUserTier('free')
-        setMaxFolders(0)
-      }
-    }
-
-    loadUserSubscription()
-  }, [])
 
   const loadCollections = async () => {
     const token = localStorage.getItem('accessToken')
@@ -1419,13 +1362,13 @@ function HomePage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-surface-border px-4 py-2.5">
+          <div className="flex flex-col gap-2.5 border-t border-surface-border px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-slate-500">
               {outputStats.words} {t('input.words')} &mdash; {outputStats.sentences}{' '}
               {t('input.sentences')}
             </span>
 
-            <div className="relative flex items-center gap-2">
+            <div className="relative flex flex-wrap items-center gap-1.5 sm:gap-2">
               {summary && (
                 <div
                   className="relative"
@@ -1653,9 +1596,9 @@ function HomePage() {
             </button>
 
             {saveMenuOpen && (
-              <div className="absolute bottom-full right-0 mb-3 z-50 flex items-start gap-3">
+              <div className="absolute bottom-full right-0 mb-3 z-50 flex flex-col sm:flex-row items-start gap-3 max-w-[calc(100vw-32px)]">
                 {/* Main Collections Dropdown */}
-                <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
+                <div className="w-72 max-w-full rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
                   <div className="mb-2.5 flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       {lang === 'vi' ? 'Lưu vào bộ sưu tập' : 'Save to collection'}
@@ -1767,7 +1710,7 @@ function HomePage() {
 
                 {/* Side Panel: Create Collection Box */}
                 {isCreatingCollection && (
-                  <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="w-72 max-w-full rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
                     <div className="mb-2.5 flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         {lang === 'vi' ? 'Tạo bộ sưu tập mới' : 'Create New Collection'}
