@@ -150,44 +150,29 @@ function PricingPage() {
       })
 
       const payload = response?.data || response
-      const checkoutUrl =
-        payload?.checkout_url ||
-        payload?.payment_url ||
-        payload?.checkoutUrl ||
-        payload?.url ||
-        payload?.data?.checkout_url
-      const orderCode =
-        payload?.order_code ||
-        payload?.orderCode ||
-        payload?.data?.order_code ||
-        payload?.data?.orderCode ||
-        ''
-      const amount = Number(
-        payload?.amount ||
-          payload?.data?.amount ||
-          payload?.payment_amount ||
-          payload?.data?.payment_amount ||
-          plan.price ||
-          0,
-      )
+      // Xử lý trường hợp BE bọc data trong object { code, data: { ... } }
+      const resData = payload?.data || payload
+
+      const checkoutUrl = resData?.checkout_url || payload?.checkout_url
+      const orderCode = resData?.order_code || payload?.order_code
+      const amount = Number(resData?.amount || payload?.amount || plan.price || 0)
 
       if (!checkoutUrl) {
         throw new Error(t('pricingPage.errors.noCheckoutUrl'))
       }
 
-      const qrCodeString =
-        payload?.qr_code ||
-        payload?.qrCode ||
-        payload?.qr_data ||
-        payload?.data?.qr_code ||
-        payload?.data?.qrCode ||
-        payload?.data?.qr_data
+      // 1. Lấy đúng chuỗi qr_code từ Backend trả về
+      const qrCodeString = resData?.qr_code || payload?.qr_code
 
-      const qrTarget = qrCodeString || checkoutUrl
+      let qrDataUrl = ''
 
-      const qrDataUrl = qrTarget.startsWith('data:image/')
-        ? qrTarget
-        : await QRCode.toDataURL(String(qrTarget), {
+      // 2. CHỈ render mã QR khi có chuỗi qr_code chuẩn
+      if (qrCodeString) {
+        if (qrCodeString.startsWith('data:image/') || qrCodeString.startsWith('http')) {
+          qrDataUrl = qrCodeString
+        } else {
+          // Sinh ảnh QR từ chuỗi VietQR (000201...)
+          qrDataUrl = await QRCode.toDataURL(String(qrCodeString), {
             errorCorrectionLevel: 'M',
             margin: 1,
             width: 360,
@@ -196,6 +181,8 @@ function PricingPage() {
               light: '#ffffff',
             },
           })
+        }
+      }
 
       setPaymentModal({
         open: true,
@@ -203,7 +190,7 @@ function PricingPage() {
         orderCode: String(orderCode),
         amount,
         planName: plan.displayName,
-        qrDataUrl,
+        qrDataUrl, // Đã chứa ảnh VietQR chuẩn
       })
     } catch (error) {
       const message = String(error?.message || '')
