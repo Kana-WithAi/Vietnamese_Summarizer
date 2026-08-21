@@ -11,6 +11,165 @@ const navItems = [
   { id: 'aiMonitor', labelKey: 'nav.aiMonitor' },
 ]
 
+const PIE_COLORS = [
+  '#06b6d4', // Cyan
+  '#6366f1', // Indigo
+  '#10b981', // Emerald
+  '#f59e0b', // Amber
+  '#ec4899', // Pink
+  '#8b5cf6', // Violet
+  '#3b82f6', // Blue
+  '#f97316', // Orange
+]
+
+function FileFormatPieChart({ data = [], lang, formatMetric }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null)
+
+  const total = useMemo(() => {
+    return data.reduce((sum, item) => sum + (Number(item.value) || 0), 0)
+  }, [data])
+
+  if (!data.length || total === 0) {
+    return (
+      <p className="mt-3 text-xs text-slate-500">
+        {lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}
+      </p>
+    )
+  }
+
+  // Calculate slice angles
+  let currentAngle = 0
+  const slices = data.map((item, index) => {
+    const value = Number(item.value) || 0
+    const percentage = (value / total) * 100
+    const angle = (value / total) * 360
+    const startAngle = currentAngle
+    const endAngle = currentAngle + angle
+    currentAngle += angle
+
+    // SVG arc calculation (radius: 70, center: 100, 100)
+    const rad = (deg) => ((deg - 90) * Math.PI) / 180
+    const x1 = 100 + 70 * Math.cos(rad(startAngle))
+    const y1 = 100 + 70 * Math.sin(rad(startAngle))
+    const x2 = 100 + 70 * Math.cos(rad(endAngle))
+    const y2 = 100 + 70 * Math.sin(rad(endAngle))
+    const largeArc = angle > 180 ? 1 : 0
+
+    // Inner radius for donut hole (45)
+    const ix1 = 100 + 45 * Math.cos(rad(endAngle))
+    const iy1 = 100 + 45 * Math.sin(rad(endAngle))
+    const ix2 = 100 + 45 * Math.cos(rad(startAngle))
+    const iy2 = 100 + 45 * Math.sin(rad(startAngle))
+
+    const pathData = data.length === 1
+      ? `M 100 30 A 70 70 0 1 1 99.99 30 M 100 55 A 45 45 0 1 0 100.01 55`
+      : `M ${x1} ${y1} A 70 70 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A 45 45 0 ${largeArc} 0 ${ix2} ${iy2} Z`
+
+    return {
+      ...item,
+      percentage,
+      pathData,
+      color: PIE_COLORS[index % PIE_COLORS.length],
+    }
+  })
+
+  const activeSlice = hoveredIndex !== null ? slices[hoveredIndex] : null
+
+  return (
+    <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-around">
+      {/* SVG Donut / Pie Chart */}
+      <div className="relative flex items-center justify-center">
+        <svg
+          viewBox="0 0 200 200"
+          className="h-48 w-48 drop-shadow-md sm:h-56 sm:w-56"
+        >
+          {slices.map((slice, index) => {
+            const isHovered = hoveredIndex === index
+            return (
+              <path
+                key={slice.label}
+                d={slice.pathData}
+                fill={slice.color}
+                className="cursor-pointer transition-all duration-200 hover:opacity-90"
+                style={{
+                  transformOrigin: '100px 100px',
+                  transform: isHovered ? 'scale(1.04)' : 'scale(1)',
+                }}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              />
+            )
+          })}
+        </svg>
+
+        {/* Center label (Donut hole info) */}
+        <div className="pointer-events-none absolute flex flex-col items-center justify-center text-center">
+          {activeSlice ? (
+            <>
+              <span className="text-xs font-semibold uppercase text-slate-300">
+                {activeSlice.label}
+              </span>
+              <span className="text-sm font-bold text-white">
+                {activeSlice.percentage.toFixed(1)}%
+              </span>
+              <span className="text-[11px] text-slate-400">
+                {formatMetric(activeSlice.value)}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-[11px] uppercase tracking-wider text-slate-400">
+                {lang === 'vi' ? 'Tổng tệp' : 'Total'}
+              </span>
+              <span className="text-base font-bold text-white">
+                {formatMetric(total)}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Breakdown / Legend List */}
+      <div className="w-full flex-1 space-y-2.5 max-w-sm">
+        {slices.map((slice, index) => {
+          const isHovered = hoveredIndex === index
+          return (
+            <div
+              key={slice.label}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
+              className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs transition-all cursor-pointer ${
+                isHovered
+                  ? 'border-accent bg-surface-base/90 shadow-sm'
+                  : 'border-surface-border/70 bg-surface-base/50 hover:border-slate-500'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="h-3 w-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: slice.color }}
+                />
+                <span className="font-semibold text-slate-200">{slice.label}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-slate-400">
+                  {formatMetric(slice.value)}
+                </span>
+                <span
+                  className="font-bold min-w-[45px] text-right"
+                  style={{ color: slice.color }}
+                >
+                  {slice.percentage.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function toArray(payload, keys = []) {
   const data = payload?.data || payload
   for (const key of keys) {
@@ -190,38 +349,6 @@ function deepFindObject(source, aliases = []) {
   }
 
   return null
-}
-
-function toIsoDateStringFromDisplay(value) {
-  const input = String(value || '').trim()
-  if (!input) return ''
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input
-
-  const slashMatch = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
-  if (!slashMatch) return ''
-
-  const day = Number(slashMatch[1])
-  const month = Number(slashMatch[2])
-  const yearRaw = Number(slashMatch[3])
-  const year = String(slashMatch[3]).length === 2 ? 2000 + yearRaw : yearRaw
-
-  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 9999) return ''
-
-  const mm = String(month).padStart(2, '0')
-  const dd = String(day).padStart(2, '0')
-  return `${year}-${mm}-${dd}`
-}
-
-function formatDisplayDate(isoDate) {
-  const value = String(isoDate || '')
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return value
-
-  const year = match[1].slice(-2)
-  const month = match[2]
-  const day = match[3]
-  return `${day}/${month}/${year}`
 }
 
 function getFeedbackComment(feedback, lang) {
@@ -423,15 +550,32 @@ function getFeedbackUserEmail(feedback) {
   return ''
 }
 
+function getDefaultDateRange() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 30)
+
+  const toIso = (d) => {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  return {
+    start: toIso(start),
+    end: toIso(end),
+  }
+}
+
 function DashboardPage() {
   const { t, lang } = useLanguage()
   const navigate = useNavigate()
   const [activeNav, setActiveNav] = useState('analyticsReports')
 
-  const [fromDate, setFromDate] = useState('2026-07-01')
-  const [toDate, setToDate] = useState('2026-08-01')
-  const [fromDateInput, setFromDateInput] = useState(formatDisplayDate('2026-07-01'))
-  const [toDateInput, setToDateInput] = useState(formatDisplayDate('2026-08-01'))
+  const [dateRange] = useState(() => getDefaultDateRange())
+  const [fromDate, setFromDate] = useState(dateRange.start)
+  const [toDate, setToDate] = useState(dateRange.end)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState('')
   const [analyticsData, setAnalyticsData] = useState({ users: null, requests: null, fileFormats: null, activeUsers: null })
@@ -868,39 +1012,25 @@ function DashboardPage() {
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.overview')}</p>
           <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo phân tích' : 'Analytics reports'}</h2>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <input
-            type="text"
-            value={fromDateInput}
-            onChange={(e) => setFromDateInput(e.target.value)}
-            onBlur={() => {
-              const parsed = toIsoDateStringFromDisplay(fromDateInput)
-              if (parsed) {
-                setFromDate(parsed)
-                setFromDateInput(formatDisplayDate(parsed))
-              } else {
-                setFromDateInput(formatDisplayDate(fromDate))
-              }
-            }}
-            placeholder="DD/MM/YY"
-            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
-          />
-          <input
-            type="text"
-            value={toDateInput}
-            onChange={(e) => setToDateInput(e.target.value)}
-            onBlur={() => {
-              const parsed = toIsoDateStringFromDisplay(toDateInput)
-              if (parsed) {
-                setToDate(parsed)
-                setToDateInput(formatDisplayDate(parsed))
-              } else {
-                setToDateInput(formatDisplayDate(toDate))
-              }
-            }}
-            placeholder="DD/MM/YY"
-            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Từ:' : 'From:'}</span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Đến:' : 'To:'}</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+            />
+          </div>
           <button type="button" onClick={loadAnalytics} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
             {lang === 'vi' ? 'Làm mới' : 'Refresh'}
           </button>
@@ -1021,26 +1151,7 @@ function DashboardPage() {
 
           <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
             <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ định dạng tệp' : 'File format distribution'}</p>
-            {fileFormatTrend.length === 0 ? (
-              <p className="mt-3 text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}</p>
-            ) : (
-              <div className="mt-4 grid gap-2 md:grid-cols-2">
-                {fileFormatTrend.map((point) => (
-                  <div key={`${point.label}-${point.value}`} className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                    <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                      <span>{point.label}</span>
-                      <span>{formatMetric(point.value)}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-surface-border/60">
-                      <div
-                        className="h-2 rounded-full bg-emerald-400"
-                        style={{ width: `${Math.max(6, (point.value / fileFormatMax) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <FileFormatPieChart data={fileFormatTrend} lang={lang} formatMetric={formatMetric} />
           </div>
         </div>
       )}
