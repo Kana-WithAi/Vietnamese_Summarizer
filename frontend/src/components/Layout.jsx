@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { useTheme } from '../App'
+import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useHistory } from '../context/HistoryContext'
 import { authApi } from '../utils/api'
@@ -18,6 +18,7 @@ function Layout({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const isOverlayOpen = isHistoryOpen || isBookmarkOpen
 
   const syncAuthState = async () => {
@@ -59,15 +60,24 @@ function Layout({ children }) {
     return () => window.removeEventListener('auth:updated', handleAuthUpdate)
   }, [])
 
-  const handleAuthAction = () => {
+  const handleAuthAction = async () => {
     if (isAuthenticated) {
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('rememberMe')
-      setIsAuthenticated(false)
-      setUserName('')
-      setIsAdmin(false)
-      window.dispatchEvent(new Event('auth:updated'))
-      navigate('/')
+      if (isLoggingOut) return
+      setIsLoggingOut(true)
+      try {
+        await authApi.logout()
+      } catch (error) {
+        console.warn('Logout API error:', error)
+      } finally {
+        localStorage.removeItem('accessToken')
+        localStorage.removeItem('rememberMe')
+        setIsAuthenticated(false)
+        setUserName('')
+        setIsAdmin(false)
+        setIsLoggingOut(false)
+        window.dispatchEvent(new Event('auth:updated'))
+        navigate('/')
+      }
       return
     }
 
@@ -176,9 +186,12 @@ function Layout({ children }) {
             <button
               type="button"
               onClick={handleAuthAction}
-              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover sm:px-4"
+              disabled={isLoggingOut}
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
             >
-              {isAuthenticated ? t('nav.logout') : t('nav.login')}
+              {isAuthenticated
+                ? (isLoggingOut ? t('nav.loggingOut') : t('nav.logout'))
+                : t('nav.login')}
             </button>
           </div>
         </div>

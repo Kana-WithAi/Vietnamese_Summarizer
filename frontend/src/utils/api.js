@@ -241,6 +241,7 @@ function buildQuery(params = {}) {
 
 export const authApi = {
   login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
+  logout: () => request('/auth/logout', { method: 'POST', auth: true }),
   register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
   verifyEmail: (payload) => request('/auth/verify-email', { method: 'POST', body: payload }),
   resendOtp: (payload) => request('/auth/resend-otp', { method: 'POST', body: payload }),

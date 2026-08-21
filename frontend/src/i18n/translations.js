@@ -20,6 +20,7 @@ export const translations = {
       login: 'Log in',
       signup: 'Sign up',
       logout: 'Log out',
+      loggingOut: 'Logging out...',
     },
     hero: {
       title: 'Vietnamese Summarizer',
@@ -604,6 +605,7 @@ export const translations = {
       login: 'Đăng nhập',
       signup: 'Đăng ký',
       logout: 'Đăng xuất',
+      loggingOut: 'Đang đăng xuất...',
     },
     hero: {
       title: 'Tóm tắt Tiếng Việt',
