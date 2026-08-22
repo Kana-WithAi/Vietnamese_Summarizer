@@ -22,7 +22,33 @@ const PIE_COLORS = [
   '#f97316', // Orange
 ]
 
-function FileFormatPieChart({ data = [], lang, formatMetric }) {
+function formatFileFormatName(format, lang = 'vi') {
+  const norm = String(format || '').toLowerCase().trim()
+  if (norm === 'text_direct' || norm === 'text') return lang === 'vi' ? 'Văn bản trực tiếp' : 'Direct text'
+  if (norm === 'pdf') return 'PDF'
+  if (norm === 'docx' || norm === 'doc') return 'DOCX'
+  if (norm === 'txt') return 'TXT'
+  if (norm === 'image' || norm === 'png' || norm === 'jpg' || norm === 'jpeg') return lang === 'vi' ? 'Hình ảnh' : 'Image'
+  if (norm === 'other') return lang === 'vi' ? 'Khác' : 'Other'
+  return format.toUpperCase()
+}
+
+function formatTierName(tier, lang = 'vi') {
+  const norm = String(tier || '').toLowerCase().trim()
+  if (norm === 'free') return lang === 'vi' ? 'Gói Miễn phí (Free)' : 'Free'
+  if (norm === 'pro') return lang === 'vi' ? 'Gói Nâng cao (Pro)' : 'Pro'
+  if (norm === 'max' || norm === 'premium' || norm === 'vip') return lang === 'vi' ? 'Gói Cao cấp (Max)' : 'Max'
+  return tier.toUpperCase()
+}
+
+function DonutPieChart({
+  data = [],
+  lang,
+  formatMetric,
+  centerLabel,
+  compact = false,
+  emptyText,
+}) {
   const [hoveredIndex, setHoveredIndex] = useState(null)
 
   const total = useMemo(() => {
@@ -31,63 +57,72 @@ function FileFormatPieChart({ data = [], lang, formatMetric }) {
 
   if (!data.length || total === 0) {
     return (
-      <p className="mt-3 text-xs text-slate-500">
-        {lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}
-      </p>
+      <div className="flex flex-col items-center justify-center p-6 text-center">
+        <div className="h-24 w-24 rounded-full border-2 border-dashed border-surface-border flex items-center justify-center text-xs text-slate-500 mb-2">
+          0
+        </div>
+        <p className="text-xs text-slate-500">
+          {emptyText || (lang === 'vi' ? 'Chưa có dữ liệu.' : 'No data available.')}
+        </p>
+      </div>
     )
   }
 
-  // Calculate slice angles
   let currentAngle = 0
   const slices = data.map((item, index) => {
     const value = Number(item.value) || 0
-    const percentage = (value / total) * 100
-    const angle = (value / total) * 360
+    const percentage = item.percentage !== undefined && item.percentage !== null
+      ? Number(item.percentage)
+      : (total > 0 ? (value / total) * 100 : 0)
+    const angle = total > 0 ? (value / total) * 360 : 0
     const startAngle = currentAngle
     const endAngle = currentAngle + angle
     currentAngle += angle
 
-    // SVG arc calculation (radius: 70, center: 100, 100)
     const rad = (deg) => ((deg - 90) * Math.PI) / 180
-    const x1 = 100 + 70 * Math.cos(rad(startAngle))
-    const y1 = 100 + 70 * Math.sin(rad(startAngle))
-    const x2 = 100 + 70 * Math.cos(rad(endAngle))
-    const y2 = 100 + 70 * Math.sin(rad(endAngle))
+    const outerR = compact ? 56 : 70
+    const innerR = compact ? 34 : 45
+    const cx = 100
+    const cy = 100
+
+    const x1 = cx + outerR * Math.cos(rad(startAngle))
+    const y1 = cy + outerR * Math.sin(rad(startAngle))
+    const x2 = cx + outerR * Math.cos(rad(endAngle))
+    const y2 = cy + outerR * Math.sin(rad(endAngle))
     const largeArc = angle > 180 ? 1 : 0
 
-    // Inner radius for donut hole (45)
-    const ix1 = 100 + 45 * Math.cos(rad(endAngle))
-    const iy1 = 100 + 45 * Math.sin(rad(endAngle))
-    const ix2 = 100 + 45 * Math.cos(rad(startAngle))
-    const iy2 = 100 + 45 * Math.sin(rad(startAngle))
+    const ix1 = cx + innerR * Math.cos(rad(endAngle))
+    const iy1 = cy + innerR * Math.sin(rad(endAngle))
+    const ix2 = cx + innerR * Math.cos(rad(startAngle))
+    const iy2 = cy + innerR * Math.sin(rad(startAngle))
 
     const pathData = data.length === 1
-      ? `M 100 30 A 70 70 0 1 1 99.99 30 M 100 55 A 45 45 0 1 0 100.01 55`
-      : `M ${x1} ${y1} A 70 70 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A 45 45 0 ${largeArc} 0 ${ix2} ${iy2} Z`
+      ? `M ${cx} ${cy - outerR} A ${outerR} ${outerR} 0 1 1 ${cx - 0.01} ${cy - outerR} M ${cx} ${cy - innerR} A ${innerR} ${innerR} 0 1 0 ${cx + 0.01} ${cy - innerR}`
+      : `M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix2} ${iy2} Z`
 
     return {
       ...item,
       percentage,
       pathData,
-      color: PIE_COLORS[index % PIE_COLORS.length],
+      color: item.color || PIE_COLORS[index % PIE_COLORS.length],
     }
   })
 
   const activeSlice = hoveredIndex !== null ? slices[hoveredIndex] : null
 
   return (
-    <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-around">
-      {/* SVG Donut / Pie Chart */}
-      <div className="relative flex items-center justify-center">
+    <div className={`mt-2 flex flex-col items-center gap-4 ${compact ? 'w-full' : 'sm:flex-row sm:items-center sm:justify-around'}`}>
+      {/* SVG Donut */}
+      <div className="relative flex items-center justify-center shrink-0">
         <svg
           viewBox="0 0 200 200"
-          className="h-48 w-48 drop-shadow-md sm:h-56 sm:w-56"
+          className={`${compact ? 'h-36 w-36' : 'h-44 w-44 sm:h-52 sm:w-52'} drop-shadow-md`}
         >
           {slices.map((slice, index) => {
             const isHovered = hoveredIndex === index
             return (
               <path
-                key={slice.label}
+                key={`${slice.label}-${index}`}
                 d={slice.pathData}
                 fill={slice.color}
                 className="cursor-pointer transition-all duration-200 hover:opacity-90"
@@ -102,61 +137,61 @@ function FileFormatPieChart({ data = [], lang, formatMetric }) {
           })}
         </svg>
 
-        {/* Center label (Donut hole info) */}
-        <div className="pointer-events-none absolute flex flex-col items-center justify-center text-center">
+        {/* Center label */}
+        <div className="pointer-events-none absolute flex flex-col items-center justify-center text-center px-1">
           {activeSlice ? (
             <>
-              <span className="text-xs font-semibold uppercase text-slate-300">
+              <span className="text-[10px] font-semibold uppercase text-slate-300 truncate max-w-[70px]">
                 {activeSlice.label}
               </span>
-              <span className="text-sm font-bold text-white">
+              <span className="text-xs font-bold text-white">
                 {activeSlice.percentage.toFixed(1)}%
               </span>
-              <span className="text-[11px] text-slate-400">
-                {formatMetric(activeSlice.value)}
+              <span className="text-[10px] text-slate-400">
+                {formatMetric ? formatMetric(activeSlice.value) : activeSlice.value}
               </span>
             </>
           ) : (
             <>
-              <span className="text-[11px] uppercase tracking-wider text-slate-400">
-                {lang === 'vi' ? 'Tổng tệp' : 'Total'}
+              <span className="text-[10px] uppercase tracking-wider text-slate-400">
+                {centerLabel || (lang === 'vi' ? 'Tổng' : 'Total')}
               </span>
-              <span className="text-base font-bold text-white">
-                {formatMetric(total)}
+              <span className="text-sm font-bold text-white">
+                {formatMetric ? formatMetric(total) : total}
               </span>
             </>
           )}
         </div>
       </div>
 
-      {/* Breakdown / Legend List */}
-      <div className="w-full flex-1 space-y-2.5 max-w-sm min-w-0">
+      {/* Legend list */}
+      <div className={`w-full space-y-1.5 ${compact ? 'max-w-full' : 'flex-1 max-w-sm min-w-0'}`}>
         {slices.map((slice, index) => {
           const isHovered = hoveredIndex === index
           return (
             <div
-              key={slice.label}
+              key={`${slice.label}-${index}`}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
-              className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs transition-all cursor-pointer ${
+              className={`flex items-center justify-between rounded-xl border px-2.5 py-1.5 text-xs transition-all cursor-pointer ${
                 isHovered
                   ? 'border-accent bg-surface-base/90 shadow-sm'
                   : 'border-surface-border/70 bg-surface-base/50 hover:border-slate-500'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2 min-w-0">
                 <span
-                  className="h-3 w-3 rounded-full flex-shrink-0"
+                  className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: slice.color }}
                 />
-                <span className="font-semibold text-slate-200">{slice.label}</span>
+                <span className="font-medium text-slate-200 truncate">{slice.label}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                 <span className="text-slate-400">
-                  {formatMetric(slice.value)}
+                  {formatMetric ? formatMetric(slice.value) : slice.value}
                 </span>
                 <span
-                  className="font-bold min-w-[45px] text-right"
+                  className="font-bold min-w-[42px] text-right"
                   style={{ color: slice.color }}
                 >
                   {slice.percentage.toFixed(1)}%
@@ -677,8 +712,7 @@ function DashboardPage() {
   const [toDate, setToDate] = useState(dateRange.end)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState('')
-  const [analyticsData, setAnalyticsData] = useState({ users: null, requests: null, fileFormats: null, activeUsers: null })
-
+  const [analyticsData, setAnalyticsData] = useState(null)
   const [usersLoading, setUsersLoading] = useState(false)
   const [usersError, setUsersError] = useState('')
   const [users, setUsers] = useState([])
@@ -721,18 +755,9 @@ function DashboardPage() {
     setAnalyticsLoading(true)
     setAnalyticsError('')
     try {
-      const [usersRes, requestsRes, fileFormatsRes, activeUsersRes] = await Promise.all([
-        adminApi.analytics.users(dateParams),
-        adminApi.analytics.requests(dateParams),
-        adminApi.analytics.fileFormats(dateParams),
-        adminApi.analytics.activeUsers(),
-      ])
-      setAnalyticsData({
-        users: usersRes?.data || usersRes,
-        requests: requestsRes?.data || requestsRes,
-        fileFormats: fileFormatsRes?.data || fileFormatsRes,
-        activeUsers: activeUsersRes?.data || activeUsersRes,
-      })
+      const response = await adminApi.analytics.overview(dateParams)
+      const data = response?.data || response || {}
+      setAnalyticsData(data)
     } catch (error) {
       setAnalyticsError(error?.message || (lang === 'vi' ? 'Không thể tải dữ liệu analytics.' : 'Unable to load analytics data.'))
     } finally {
@@ -862,57 +887,15 @@ function DashboardPage() {
     return Number.isFinite(numeric) ? numeric : 0
   }
 
-  const usersTimeSeries = useMemo(() => extractRecordList(analyticsData.users), [analyticsData.users])
-
-  const usersByStatusMap = useMemo(
-    () => deepFindObject(analyticsData.users, ['users_by_status', 'usersByStatus']) || {},
-    [analyticsData.users],
-  )
-  const usersByRoleMap = useMemo(
-    () => deepFindObject(analyticsData.users, ['users_by_role', 'usersByRole']) || {},
-    [analyticsData.users],
-  )
-  const activeByPlanMap = useMemo(
-    () => deepFindObject(analyticsData.activeUsers, ['by_plan', 'byPlan']) || {},
-    [analyticsData.activeUsers],
-  )
-
   const analyticsCards = useMemo(() => {
-    const fallbackTotalUsers = Object.values(usersByStatusMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
+    const usersObj = analyticsData?.users || {}
+    const requestsObj = analyticsData?.requests || {}
+    const activeUsersObj = analyticsData?.active_users || {}
 
-    const totalUsers =
-      deepFindNumber(analyticsData.users, [
-        'total_users_overall',
-        'totalUsersOverall',
-        'total_users',
-        'totalUsers',
-        'total',
-        'count',
-        'registrations',
-      ]) ||
-      fallbackTotalUsers ||
-      0
-
-    const newUsersFromSeries = usersTimeSeries.reduce((sum, point) => {
-      const value = Number(point?.new_users ?? point?.newUsers ?? point?.count ?? 0)
-      return sum + (Number.isFinite(value) ? value : 0)
-    }, 0)
-
-    const newUsers =
-      deepFindNumber(analyticsData.users, ['total_users_in_period', 'totalUsersInPeriod']) ||
-      newUsersFromSeries ||
-      0
-
-    const totalRequests =
-      deepFindNumber(analyticsData.requests, ['total_requests', 'totalRequests', 'total', 'count', 'requests']) ||
-      0
-
-    const fallbackActiveUsersCount = Object.values(activeByPlanMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
-
-    const activeUsersCount =
-      deepFindNumber(analyticsData.activeUsers, ['active_users_count', 'activeUsersCount', 'active_users', 'activeUsers']) ||
-      fallbackActiveUsersCount ||
-      0
+    const totalUsers = Number(usersObj.total_users_overall ?? usersObj.total_users ?? 0)
+    const newUsers = Number(usersObj.total_users_in_period ?? usersObj.new_users ?? 0)
+    const totalRequests = Number(requestsObj.total_requests ?? requestsObj.total ?? 0)
+    const activeCount = Number(activeUsersObj.total ?? 0)
 
     return [
       {
@@ -936,201 +919,93 @@ function DashboardPage() {
       {
         key: 'activeUsers',
         title: lang === 'vi' ? 'Đang hoạt động (5 phút)' : 'Active users (5 min)',
-        value: activeUsersCount,
+        value: activeCount,
         accent: 'text-amber-300',
       },
     ]
-  }, [analyticsData.users, analyticsData.requests, analyticsData.activeUsers, usersByStatusMap, activeByPlanMap, usersTimeSeries, lang])
+  }, [analyticsData, lang])
 
-  const userStatusPoints = useMemo(
-    () => extractObjectPoints(usersByStatusMap),
-    [usersByStatusMap],
-  )
-  const userRolePoints = useMemo(
-    () => extractObjectPoints(usersByRoleMap),
-    [usersByRoleMap],
-  )
-  const activeByPlanPoints = useMemo(
-    () => extractObjectPoints(activeByPlanMap),
-    [activeByPlanMap],
-  )
-  const requestInsights = useMemo(
-    () => ({
-      characters: deepFindNumber(analyticsData.requests, ['total_characters_processed', 'totalCharactersProcessed']) || 0,
-      words: deepFindNumber(analyticsData.requests, ['total_words_processed', 'totalWordsProcessed']) || 0,
-      latency: deepFindNumber(analyticsData.requests, ['avg_latency_ms', 'avgLatencyMs']) || 0,
-    }),
-    [analyticsData.requests],
-  )
-  const activeUsersWindowMinutes = useMemo(
-    () => deepFindNumber(analyticsData.activeUsers, ['window_minutes', 'windowMinutes']) || 5,
-    [analyticsData.activeUsers],
-  )
-
-  const fileFormatTrend = useMemo(() => extractFormatPoints(analyticsData.fileFormats), [analyticsData.fileFormats])
-
-  const userCompositionMax = useMemo(
-    () => Math.max(1, ...[...userStatusPoints, ...userRolePoints].map((point) => point.value)),
-    [userStatusPoints, userRolePoints],
-  )
-  const activeByPlanMax = useMemo(() => Math.max(1, ...activeByPlanPoints.map((point) => point.value)), [activeByPlanPoints])
-  const fileFormatMax = useMemo(() => Math.max(1, ...fileFormatTrend.map((point) => point.value)), [fileFormatTrend])
-
-  const resetPlanForm = () => {
-    setEditingPlanId('')
-    setPlanForm({
-      name: '',
-      display_name: '',
-      char_limit: '',
-      daily_word_limit: '',
-      price: '',
-      duration_days: '',
-      description: '',
-      is_active: true,
-    })
-  }
-
-  const handleSavePlan = async () => {
-    const payload = {
-      name: planForm.name,
-      display_name: planForm.display_name,
-      char_limit: parseNumber(planForm.char_limit),
-      daily_word_limit: parseNumber(planForm.daily_word_limit),
-      price: parseNumber(planForm.price),
-      duration_days: parseNumber(planForm.duration_days),
-      description: planForm.description,
-      is_active: Boolean(planForm.is_active),
-    }
-
-    try {
-      if (editingPlanId) {
-        await adminApi.subscriptions.update(editingPlanId, payload)
-      } else {
-        await adminApi.subscriptions.create(payload)
-      }
-      resetPlanForm()
-      await loadPlans()
-    } catch (error) {
-      setPlansError(error?.message || (lang === 'vi' ? 'Không thể lưu gói.' : 'Unable to save plan.'))
-    }
-  }
-
-  const handleEditPlan = (plan, index) => {
-    const id = plan?.id || plan?._id || plan?.subscription_id || `plan-${index}`
-    setEditingPlanId(id)
-    setPlanForm({
-      name: String(plan?.name || ''),
-      display_name: String(plan?.display_name || plan?.displayName || ''),
-      char_limit: String(plan?.char_limit ?? plan?.charLimit ?? ''),
-      daily_word_limit: String(plan?.daily_word_limit ?? plan?.dailyWordLimit ?? ''),
-      price: String(plan?.price ?? ''),
-      duration_days: String(plan?.duration_days ?? plan?.durationDays ?? ''),
-      description: String(plan?.description || ''),
-      is_active: Boolean(plan?.is_active ?? plan?.isActive ?? true),
-    })
-  }
-
-  const handleDeletePlan = async (plan, index) => {
-    const id = plan?.id || plan?._id || plan?.subscription_id || `plan-${index}`
-    if (!window.confirm(lang === 'vi' ? 'Xóa gói này?' : 'Delete this plan?')) return
-
-    try {
-      await adminApi.subscriptions.remove(id)
-      await loadPlans()
-    } catch (error) {
-      setPlansError(error?.message || (lang === 'vi' ? 'Không thể xóa gói.' : 'Unable to delete plan.'))
-    }
-  }
-
-  const handleToggleBan = async (user) => {
-    const id = user?.id || user?._id || user?.user_id
-    if (!id) return
-
-    const isBanned = String(user?.status || '').toLowerCase() === 'banned'
-    try {
-      if (isBanned) {
-        await adminApi.users.unban(id)
-      } else {
-        const reason = window.prompt(lang === 'vi' ? 'Lý do cấm (tùy chọn):' : 'Ban reason (optional):') || ''
-        await adminApi.users.ban(id, reason ? { reason } : {})
-      }
-      await loadUsers(userFilters)
-    } catch (error) {
-      setUsersError(error?.message || (lang === 'vi' ? 'Không thể cập nhật trạng thái người dùng.' : 'Unable to update user status.'))
-    }
-  }
-
-  const handleReplyFeedback = async (feedback, index) => {
-    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
-    const { replyContent, templateType } = getFeedbackExistingReply(feedback)
-    const form = replyForms[id] || { template_type: templateType, reply_content: replyContent }
-    const currentStatus = getFeedbackReplyStatus(feedback)
-    const selectedTemplate = form.template_type || templateType || ''
-    const isCustomTemplate = normalizeTemplateKey(selectedTemplate) === 'custom'
-    const resolvedReplyContent = isCustomTemplate
-      ? (form.reply_content || '').trim()
-      : (getTemplateDefaultContent(selectedTemplate, templates) || form.reply_content || '').trim()
-
-    if (currentStatus === 'replied') {
-      return
-    }
-
-    if (isCustomTemplate && !resolvedReplyContent) {
-      setFeedbackError(lang === 'vi' ? 'Nội dung phản hồi không được để trống.' : 'Reply content is required.')
-      return
-    }
-
-    if (!isCustomTemplate && !resolvedReplyContent) {
-      setFeedbackError(lang === 'vi' ? 'Mẫu phản hồi đã chọn chưa có nội dung mặc định.' : 'The selected template has no default reply content.')
-      return
-    }
-
-    try {
-      const nextReplyForm = {
-        ...form,
-        template_type: selectedTemplate || undefined,
-        reply_content: resolvedReplyContent,
-      }
-
-      setReplyForms((prev) => ({ ...prev, [id]: nextReplyForm }))
-
-      await adminApi.feedbacks.reply(id, {
-        template_type: nextReplyForm.template_type || undefined,
-        reply_content: nextReplyForm.reply_content,
-        admin_replied: 'replied',
+  const usageByTierPoints = useMemo(() => {
+    const usageObj = analyticsData?.usage_by_tier || {}
+    const tiers = Array.isArray(usageObj.tiers) ? usageObj.tiers : []
+    if (tiers.length > 0) {
+      return tiers.map((item, idx) => {
+        const tierName = item.tier || 'other'
+        const color =
+          tierName.toLowerCase() === 'max'
+            ? '#f59e0b'
+            : tierName.toLowerCase() === 'pro'
+              ? '#6366f1'
+              : tierName.toLowerCase() === 'free'
+                ? '#06b6d4'
+                : PIE_COLORS[idx % PIE_COLORS.length]
+        return {
+          label: formatTierName(tierName, lang),
+          value: Number(item.total_requests) || 0,
+          percentage: Number(item.percentage_requests) || 0,
+          color,
+        }
       })
-      await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
-    } catch (error) {
-      setFeedbackError(error?.message || (lang === 'vi' ? 'Không thể gửi phản hồi.' : 'Unable to send feedback reply.'))
     }
-  }
+    return []
+  }, [analyticsData?.usage_by_tier, lang])
 
-  const handleDeleteFeedback = (feedback, index) => {
-    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
-    setDeleteFeedbackTarget({ id, feedback })
-  }
-
-  const confirmDeleteFeedback = async () => {
-    if (!deleteFeedbackTarget?.id) return
-    setIsDeletingFeedback(true)
-
-    try {
-      await adminApi.feedbacks.remove(deleteFeedbackTarget.id)
-      setDeleteFeedbackTarget(null)
-      await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
-    } catch (error) {
-      setFeedbackError(error?.message || (lang === 'vi' ? 'Không thể xóa phản hồi.' : 'Unable to delete feedback.'))
-    } finally {
-      setIsDeletingFeedback(false)
+  const activeUsersByTierPoints = useMemo(() => {
+    const activeUsersObj = analyticsData?.active_users || {}
+    const byPlan = activeUsersObj.by_plan || activeUsersObj.byPlan || {}
+    const planKeys = Object.keys(byPlan)
+    if (planKeys.length > 0) {
+      const items = planKeys.map((planKey) => {
+        const val = Number(byPlan[planKey]) || 0
+        const color =
+          planKey.toLowerCase() === 'max'
+            ? '#f59e0b'
+            : planKey.toLowerCase() === 'pro'
+              ? '#6366f1'
+              : planKey.toLowerCase() === 'free'
+                ? '#06b6d4'
+                : '#10b981'
+        return {
+          label: formatTierName(planKey, lang),
+          value: val,
+          color,
+        }
+      })
+      const hasAnyNonZero = items.some((item) => item.value > 0)
+      if (hasAnyNonZero) return items
     }
-  }
+    const total = Number(activeUsersObj.total) || 0
+    if (total > 0) {
+      return [{ label: lang === 'vi' ? 'Đang hoạt động' : 'Active', value: total, color: '#10b981' }]
+    }
+    return []
+  }, [analyticsData?.active_users, lang])
+
+  const fileFormatsByTier = useMemo(() => {
+    const raw = analyticsData?.file_formats_by_tier || {}
+    const tiers = ['free', 'pro', 'max']
+
+    const result = {}
+    tiers.forEach((tierKey) => {
+      const items = Array.isArray(raw[tierKey]) ? raw[tierKey] : []
+      result[tierKey] = items.map((item, idx) => ({
+        label: formatFileFormatName(item.format, lang),
+        value: Number(item.count) || 0,
+        percentage: Number(item.percentage) || 0,
+        color: PIE_COLORS[idx % PIE_COLORS.length],
+      }))
+    })
+
+    return result
+  }, [analyticsData?.file_formats_by_tier, lang])
 
   const renderAnalyticsReports = () => (
-    <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
+    <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
+      {/* Header với Tiêu đề & Chọn ngày */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.overview')}</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo phân tích' : 'Analytics reports'}</h2>
+          <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo thống kê' : 'Analytics & reports'}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 w-full sm:w-auto">
@@ -1159,9 +1034,10 @@ function DashboardPage() {
 
       {analyticsError && <p className="text-sm text-rose-300">{analyticsError}</p>}
       {analyticsLoading ? (
-        <div className="text-sm text-slate-400">{lang === 'vi' ? 'Đang tải dữ liệu...' : 'Loading data...'}</div>
+        <div className="py-8 text-center text-sm text-slate-400">{lang === 'vi' ? 'Đang tải dữ liệu...' : 'Loading data...'}</div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Top 4 Stats Cards */}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {analyticsCards.map((card) => (
               <div key={card.key} className="rounded-2xl border border-surface-border bg-gradient-to-br from-surface-base/90 to-surface-base/50 p-4">
@@ -1173,105 +1049,127 @@ function DashboardPage() {
             ))}
           </div>
 
+          {/* Row 1: Phân bổ người dùng theo bậc (Pie chart) & Người dùng Realtime theo bậc (Pie chart) */}
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ người dùng' : 'User segmentation'}</p>
-              {[...userStatusPoints, ...userRolePoints].length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}</p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {userStatusPoints.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo trạng thái' : 'By status'}</p>
-                      {userStatusPoints.map((point) => (
-                        <div key={`status-${point.label}-${point.value}`}>
-                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                            <span className="truncate pr-2">{point.label}</span>
-                            <span>{formatMetric(point.value)}</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-surface-border/60">
-                            <div
-                              className="h-2 rounded-full bg-cyan-400"
-                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {userRolePoints.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo vai trò' : 'By role'}</p>
-                      {userRolePoints.map((point) => (
-                        <div key={`role-${point.label}-${point.value}`}>
-                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                            <span className="truncate pr-2">{point.label}</span>
-                            <span>{formatMetric(point.value)}</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-surface-border/60">
-                            <div
-                              className="h-2 rounded-full bg-indigo-400"
-                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+            {/* Phân bổ người dùng & yêu cầu theo bậc */}
+            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">
+                    {lang === 'vi' ? 'Phân bổ người dùng theo bậc' : 'User distribution by tier'}
+                  </p>
+                  <span className="text-xs text-slate-400">
+                    {lang === 'vi' ? 'Theo lượt yêu cầu' : 'By requests'}
+                  </span>
                 </div>
-              )}
+                <p className="mt-1 text-xs text-slate-500">
+                  {lang === 'vi' ? 'Tỷ lệ phân bổ và sử dụng của từng nhóm người dùng (Free, Pro, Max)' : 'Usage distribution across tiers (Free, Pro, Max)'}
+                </p>
+              </div>
+              <div className="mt-4">
+                <DonutPieChart
+                  data={usageByTierPoints}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  centerLabel={lang === 'vi' ? 'Yêu cầu' : 'Requests'}
+                  emptyText={lang === 'vi' ? 'Chưa có dữ liệu phân bổ bậc người dùng.' : 'No tier usage data available.'}
+                />
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Yêu cầu & người dùng realtime' : 'Requests & realtime users'}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Ký tự xử lý' : 'Chars processed'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.characters)}</p>
-                </div>
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Từ xử lý' : 'Words processed'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.words)}</p>
-                </div>
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Độ trễ TB' : 'Avg latency'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.latency)} ms</p>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  {lang === 'vi' ? 'Đang hoạt động theo gói' : 'Active by plan'}
-                  <span className="ml-2 normal-case tracking-normal text-slate-400">
-                    ({lang === 'vi' ? 'cửa sổ' : 'window'} {activeUsersWindowMinutes} {lang === 'vi' ? 'phút' : 'minutes'})
+            {/* Người dùng realtime theo bậc */}
+            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">
+                    {lang === 'vi' ? 'Người dùng Realtime theo bậc' : 'Realtime active users by tier'}
+                  </p>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {lang === 'vi' ? 'Trực tiếp (5 phút)' : 'Live (5 min)'}
                   </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {lang === 'vi' ? 'Số lượng người dùng đang hoạt động phân theo từng bậc' : 'Active users in the last 5 minutes broken down by tier'}
                 </p>
-                {activeByPlanPoints.length === 0 ? (
-                  <p className="text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu realtime.' : 'No realtime plan data yet.'}</p>
-                ) : (
-                  activeByPlanPoints.map((point) => (
-                    <div key={`plan-${point.label}-${point.value}`}>
-                      <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                        <span className="truncate pr-2">{point.label}</span>
-                        <span>{formatMetric(point.value)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-surface-border/60">
-                        <div
-                          className="h-2 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.max(4, (point.value / activeByPlanMax) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
+              </div>
+              <div className="mt-4">
+                <DonutPieChart
+                  data={activeUsersByTierPoints}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  centerLabel={lang === 'vi' ? 'Đang online' : 'Online'}
+                  emptyText={lang === 'vi' ? 'Hiện tại không có người dùng nào đang hoạt động.' : 'No active users in the current window.'}
+                />
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-            <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ định dạng tệp' : 'File format distribution'}</p>
-            <FileFormatPieChart data={fileFormatTrend} lang={lang} formatMetric={formatMetric} />
+          {/* Row 2: Phân bổ định dạng tệp tin theo bậc người dùng (1 khung chia thành 3 cột, mỗi cột 1 biểu đồ tròn) */}
+          <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 space-y-4">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-white">
+                  {lang === 'vi' ? 'Phân bổ định dạng tệp tin theo bậc người dùng' : 'File format distribution by user tier'}
+                </h3>
+                <span className="text-xs text-slate-400">
+                  {lang === 'vi' ? 'Tỷ lệ % định dạng tệp (Text, PDF, DOCX,...) được sử dụng ở từng bậc' : 'Percentage of file formats used per user tier'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 pt-2">
+              {/* Cột 1: Gói Free */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 text-xs font-bold text-cyan-300">
+                    {lang === 'vi' ? 'Gói Miễn phí (Free)' : 'Free Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.free || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Free' : 'Free Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Free.' : 'No files in Free tier.'}
+                />
+              </div>
+
+              {/* Cột 2: Gói Pro */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 px-3 py-1 text-xs font-bold text-indigo-300">
+                    {lang === 'vi' ? 'Gói Nâng cao (Pro)' : 'Pro Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.pro || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Pro' : 'Pro Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Pro.' : 'No files in Pro tier.'}
+                />
+              </div>
+
+              {/* Cột 3: Gói Max */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-xs font-bold text-amber-300">
+                    {lang === 'vi' ? 'Gói Cao cấp (Max)' : 'Max Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.max || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Max' : 'Max Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Max.' : 'No files in Max tier.'}
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}

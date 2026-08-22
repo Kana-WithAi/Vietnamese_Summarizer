@@ -509,6 +509,7 @@ export const adminApi = {
     },
   },
   analytics: {
+    overview: (params = {}) => request(`/admin/analytics${buildQuery(params)}`, { auth: true }),
     users: (params = {}) => request(`/admin/analytics/users${buildQuery(params)}`, { auth: true }),
     requests: (params = {}) => request(`/admin/analytics/requests${buildQuery(params)}`, { auth: true }),
     fileFormats: (params = {}) => request(`/admin/analytics/file-formats${buildQuery(params)}`, { auth: true }),
