@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
-import { adminApi } from '../utils/api'
+import { adminApi, feedbacksApi } from '../utils/api'
 
 const navItems = [
   { id: 'analyticsReports', labelKey: 'nav.overview' },
@@ -844,6 +844,137 @@ function DashboardPage() {
       setTemplates(toArray(response, ['items', 'templates', 'data']))
     } catch {
       setTemplates([])
+    }
+  }
+
+  const handleToggleBan = async (user) => {
+    const userId = user?.id || user?._id
+    if (!userId) return
+    const status = String(user?.status || '').toLowerCase()
+    const isBanned = status === 'banned' || status === 'suspended'
+    try {
+      if (isBanned) {
+        await adminApi.users.unban(userId)
+      } else {
+        await adminApi.users.ban(userId, { reason: 'Banned by admin' })
+      }
+      await loadUsers(userFilters)
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Thao tác thất bại.' : 'Action failed.'))
+    }
+  }
+
+  const resetPlanForm = () => {
+    setEditingPlanId('')
+    setPlanForm({
+      name: '',
+      display_name: '',
+      char_limit: '',
+      daily_word_limit: '',
+      price: '',
+      duration_days: '',
+      description: '',
+      is_active: true,
+    })
+  }
+
+  const handleEditPlan = (plan) => {
+    const id = plan?.id || plan?._id
+    setEditingPlanId(id || '')
+    setPlanForm({
+      name: plan?.name || '',
+      display_name: plan?.display_name || plan?.displayName || '',
+      char_limit: plan?.char_limit !== undefined ? String(plan.char_limit) : '',
+      daily_word_limit: plan?.daily_word_limit !== undefined ? String(plan.daily_word_limit) : '',
+      price: plan?.price !== undefined ? String(plan.price) : '',
+      duration_days: plan?.duration_days !== undefined ? String(plan.duration_days) : '',
+      description: plan?.description || '',
+      is_active: plan?.is_active ?? true,
+    })
+  }
+
+  const handleSavePlan = async () => {
+    if (!planForm.name || !planForm.display_name) {
+      alert(lang === 'vi' ? 'Vui lòng nhập tên gói và tên hiển thị.' : 'Please enter plan name and display name.')
+      return
+    }
+
+    const payload = {
+      name: planForm.name,
+      display_name: planForm.display_name,
+      char_limit: Number(planForm.char_limit) || 0,
+      daily_word_limit: Number(planForm.daily_word_limit) || 0,
+      price: Number(planForm.price) || 0,
+      duration_days: Number(planForm.duration_days) || 30,
+      description: planForm.description,
+      is_active: Boolean(planForm.is_active),
+    }
+
+    try {
+      if (editingPlanId) {
+        await adminApi.subscriptions.update(editingPlanId, payload)
+      } else {
+        await adminApi.subscriptions.create(payload)
+      }
+      resetPlanForm()
+      await loadPlans()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể lưu gói.' : 'Unable to save subscription plan.'))
+    }
+  }
+
+  const handleDeletePlan = async (plan) => {
+    const id = plan?.id || plan?._id
+    if (!id) return
+    const confirmMsg = lang === 'vi' ? 'Bạn có chắc chắn muốn xóa gói này?' : 'Are you sure you want to delete this plan?'
+    if (!window.confirm(confirmMsg)) return
+    try {
+      await adminApi.subscriptions.remove(id)
+      await loadPlans()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể xóa gói.' : 'Unable to delete subscription plan.'))
+    }
+  }
+
+  const handleReplyFeedback = async (feedback, index) => {
+    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
+    const replyForm = replyForms[id]
+    if (!replyForm?.reply_content) {
+      alert(lang === 'vi' ? 'Vui lòng nhập nội dung phản hồi.' : 'Please enter reply content.')
+      return
+    }
+    try {
+      await adminApi.feedbacks.reply(id, {
+        template_type: replyForm.template_type || undefined,
+        reply_content: replyForm.reply_content,
+        admin_replied: 'replied',
+      })
+      await loadFeedbacks()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể gửi phản hồi.' : 'Unable to send reply.'))
+    }
+  }
+
+  const handleDeleteFeedback = (feedback) => {
+    setDeleteFeedbackTarget(feedback)
+  }
+
+  const confirmDeleteFeedback = async () => {
+    if (!deleteFeedbackTarget) return
+    const id = deleteFeedbackTarget?.id || deleteFeedbackTarget?._id || deleteFeedbackTarget?.feedback_id
+    if (!id) {
+      setDeleteFeedbackTarget(null)
+      return
+    }
+    setIsDeletingFeedback(true)
+    try {
+      await adminApi.feedbacks.remove(id)
+      setDeleteFeedbackTarget(null)
+      await loadFeedbacks()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể xóa phản hồi.' : 'Unable to delete feedback.'))
+    } finally {
+      setIsDeletingFeedback(false)
     }
   }
 
