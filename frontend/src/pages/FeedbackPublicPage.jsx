@@ -38,6 +38,53 @@ function normalizeFeedbackList(response) {
           : []
 }
 
+function getFeedbackAuthorName(item, lang = 'vi') {
+  const directCandidates = [
+    item?.user_name,
+    item?.userName,
+    item?.full_name,
+    item?.fullName,
+    item?.name,
+    item?.author_name,
+    item?.authorName,
+    item?.user?.name,
+    item?.user?.full_name,
+    item?.user?.fullName,
+    item?.user?.username,
+    item?.author?.name,
+    item?.author?.full_name,
+    item?.author?.fullName,
+    item?.author?.username,
+  ]
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  const emailCandidates = [
+    item?.user?.email,
+    item?.author?.email,
+    item?.email,
+    item?.user_email,
+    item?.userEmail,
+  ]
+
+  for (const email of emailCandidates) {
+    if (typeof email === 'string' && email.trim()) {
+      const cleanEmail = email.trim()
+      const prefix = cleanEmail.split('@')[0]
+      if (prefix) {
+        return prefix
+      }
+      return cleanEmail
+    }
+  }
+
+  return lang === 'vi' ? 'Khách ẩn danh' : 'Anonymous User'
+}
+
 function FeedbackPublicPage() {
   const { lang, t } = useLanguage()
   const [items, setItems] = useState([])
@@ -161,7 +208,7 @@ function FeedbackPublicPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{displayTargetType}</p>
-                    <h2 className="mt-2 text-lg font-semibold text-white">{item?.user_name || item?.userName || (lang === 'vi' ? 'Người dùng' : 'User')}</h2>
+                    <h2 className="mt-2 text-lg font-semibold text-white">{getFeedbackAuthorName(item, lang)}</h2>
                   </div>
                   <StarRating value={rating} />
                 </div>

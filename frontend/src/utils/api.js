@@ -481,9 +481,9 @@ export const adminApi = {
     },
   },
   feedbacks: {
-    list: ({ page, limit, rating, admin_replied } = {}) =>
+    list: ({ page, limit, rating, admin_replied, tag } = {}) =>
       request(
-        `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied })}`,
+        `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied, tag })}`,
         { auth: true },
       ),
     replyTemplates: (force = false) => cachedRequest('/admin/feedbacks/reply-templates', { auth: true, force }, 10 * 60 * 1000),

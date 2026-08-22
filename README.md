@@ -29,7 +29,7 @@ Vietnamese Summarizer is a React + Vite frontend prototype built to support bili
 ### Tiếng Việt
 - Nhập văn bản thủ công và dán nội dung để tóm tắt
 - Tải lên tệp tài liệu để trích xuất nội dung
-- Chọn độ dài bản tóm tắt: ngắn / trung bình / dài
+- Chọn độ dài bản tóm tắt: 10% / 20% / 30%
 - Hiển thị kết quả tóm tắt với các nút sao chép, tải xuống và đọc giọng nói
 - Phản hồi bằng nút thích / không thích
 - Chuyển đổi giao diện song ngữ Anh – Việt
@@ -42,7 +42,7 @@ Vietnamese Summarizer is a React + Vite frontend prototype built to support bili
 ### English
 - Manual text input and paste-to-summarize workflow
 - File upload support for extracting content from documents
-- Summary length selection: short / medium / long
+- Summary length selection: 10% / 20% / 30%
 - Result panel with copy, download, and text-to-speech actions
 - Feedback using thumbs up / thumbs down controls
 - English and Vietnamese interface switching

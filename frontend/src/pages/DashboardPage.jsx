@@ -351,20 +351,63 @@ function deepFindObject(source, aliases = []) {
   return null
 }
 
-function getFeedbackComment(feedback, lang) {
+function getFeedbackTags(feedback, t) {
+  const rawList = []
+
+  const pushCandidate = (val) => {
+    if (!val) return
+    if (Array.isArray(val)) {
+      val.forEach(pushCandidate)
+    } else if (typeof val === 'string' && val.trim()) {
+      rawList.push(val.trim())
+    } else if (typeof val === 'object') {
+      const code = val.code || val.id || val.tag || val.label || val.name || ''
+      if (code) rawList.push(String(code).trim())
+    }
+  }
+
+  pushCandidate(feedback?.tags)
+  pushCandidate(feedback?.tag)
+  pushCandidate(feedback?.criteria)
+  pushCandidate(feedback?.reasons)
+  pushCandidate(feedback?.reason_codes)
+  pushCandidate(feedback?.reasonCodes)
+  pushCandidate(feedback?.reason)
+  pushCandidate(feedback?.payload?.tags)
+  pushCandidate(feedback?.payload?.tag)
+  pushCandidate(feedback?.payload?.criteria)
+  pushCandidate(feedback?.payload?.reasons)
+  pushCandidate(feedback?.payload?.reason)
+  pushCandidate(feedback?.feedback?.tags)
+  pushCandidate(feedback?.feedback?.tag)
+
+  const uniqueCodes = Array.from(new Set(rawList.filter(Boolean)))
+
+  return uniqueCodes.map((tagCode) => {
+    const translatedTag = t ? t(`feedback.reasons.${tagCode}`) : ''
+    const displayTag =
+      translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
+        ? translatedTag
+        : tagCode
+    return { code: tagCode, label: displayTag }
+  })
+}
+
+function getFeedbackUserComment(feedback) {
   const candidates = [
+    feedback?.comment,
     feedback?.content,
     feedback?.message,
-    feedback?.comment,
     feedback?.feedback_content,
     feedback?.feedbackContent,
     feedback?.details,
     feedback?.description,
-    feedback?.reason,
     feedback?.text,
     feedback?.body,
+    feedback?.payload?.comment,
     feedback?.payload?.content,
     feedback?.payload?.message,
+    feedback?.feedback?.comment,
     feedback?.feedback?.content,
     feedback?.feedback?.message,
   ]
@@ -374,6 +417,13 @@ function getFeedbackComment(feedback, lang) {
       return value.trim()
     }
   }
+
+  return ''
+}
+
+function getFeedbackComment(feedback, lang) {
+  const comment = getFeedbackUserComment(feedback)
+  if (comment) return comment
 
   const reasonList =
     feedback?.reasons ||
@@ -526,10 +576,59 @@ function getFeedbackExistingReply(feedback, templates = []) {
 }
 
 function getFeedbackRatingLabel(rating, t) {
+  const num = Number(rating)
+  if (Number.isFinite(num) && num >= 1 && num <= 5) {
+    return `${num} ★`
+  }
   const normalized = String(rating || '').trim().toLowerCase()
-  if (normalized === 'like') return t('dashboard.feedbackModerationUi.like')
-  if (normalized === 'dislike') return t('dashboard.feedbackModerationUi.dislike')
-  return rating || '-'
+  if (normalized === 'like') return '5 ★'
+  if (normalized === 'dislike') return '1 ★'
+  return rating ? `${rating} ★` : '-'
+}
+
+function getFeedbackAuthorName(feedback, lang = 'vi') {
+  const directCandidates = [
+    feedback?.user_name,
+    feedback?.userName,
+    feedback?.full_name,
+    feedback?.fullName,
+    feedback?.name,
+    feedback?.author_name,
+    feedback?.authorName,
+    feedback?.user?.name,
+    feedback?.user?.full_name,
+    feedback?.user?.fullName,
+    feedback?.user?.username,
+    feedback?.author?.name,
+    feedback?.author?.full_name,
+    feedback?.author?.fullName,
+    feedback?.author?.username,
+  ]
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  const emailCandidates = [
+    feedback?.user?.email,
+    feedback?.author?.email,
+    feedback?.email,
+    feedback?.user_email,
+    feedback?.userEmail,
+  ]
+
+  for (const email of emailCandidates) {
+    if (typeof email === 'string' && email.trim()) {
+      const cleanEmail = email.trim()
+      const prefix = cleanEmail.split('@')[0]
+      if (prefix) return prefix
+      return cleanEmail
+    }
+  }
+
+  return lang === 'vi' ? 'Khách ẩn danh' : 'Anonymous User'
 }
 
 function getFeedbackUserEmail(feedback) {
@@ -609,6 +708,8 @@ function DashboardPage() {
   const [feedbackTotalPages, setFeedbackTotalPages] = useState(0)
   const [feedbackRating, setFeedbackRating] = useState('')
   const [feedbackReplyStatus, setFeedbackReplyStatus] = useState('')
+  const [feedbackTag, setFeedbackTag] = useState('')
+  const [criteriaList, setCriteriaList] = useState([])
   const [templates, setTemplates] = useState([])
   const [replyForms, setReplyForms] = useState({})
   const [deleteFeedbackTarget, setDeleteFeedbackTarget] = useState(null)
@@ -671,7 +772,24 @@ function DashboardPage() {
     }
   }
 
-  const loadFeedbacks = async (pageValue = feedbackPage, ratingValue = feedbackRating, replyStatusValue = feedbackReplyStatus) => {
+  const loadCriteriaList = async () => {
+    try {
+      const res = await feedbacksApi.criteria()
+      const list = res?.criteria || res?.data?.criteria || (Array.isArray(res) ? res : [])
+      if (Array.isArray(list) && list.length > 0) {
+        setCriteriaList(list)
+      }
+    } catch {
+      // ignore criteria load error
+    }
+  }
+
+  const loadFeedbacks = async (
+    pageValue = feedbackPage,
+    ratingValue = feedbackRating,
+    replyStatusValue = feedbackReplyStatus,
+    tagValue = feedbackTag,
+  ) => {
     setFeedbackLoading(true)
     setFeedbackError('')
     try {
@@ -680,6 +798,7 @@ function DashboardPage() {
         limit: 20,
         rating: ratingValue || undefined,
         admin_replied: replyStatusValue || undefined,
+        tag: tagValue || undefined,
       })
       const list = toArray(response, ['items', 'feedbacks', 'results'])
       const pagination = getPagination(response)
@@ -723,10 +842,11 @@ function DashboardPage() {
 
   useEffect(() => {
     if (activeNav === 'feedbackModeration') {
-      loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
+      loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus, feedbackTag)
       loadReplyTemplates()
+      loadCriteriaList()
     }
-  }, [activeNav, feedbackPage, feedbackRating, feedbackReplyStatus])
+  }, [activeNav, feedbackPage, feedbackRating, feedbackReplyStatus, feedbackTag])
 
   const formatMetric = (value) => {
     const numeric = Number(value)
@@ -1316,6 +1436,84 @@ function DashboardPage() {
     </div>
   )
 
+  const availableTags = useMemo(() => {
+    const map = new Map()
+
+    const addTag = (code, rawLabel) => {
+      if (!code) return
+      const cleanCode = String(code).trim()
+      if (!cleanCode || map.has(cleanCode)) return
+      const translated = t(`feedback.reasons.${cleanCode}`)
+      const label = translated && translated !== `feedback.reasons.${cleanCode}`
+        ? translated
+        : (rawLabel || cleanCode)
+      map.set(cleanCode, { code: cleanCode, label })
+    }
+
+    criteriaList.forEach((item) => {
+      const code = typeof item === 'string' ? item : item?.code || item?.id || item?.name
+      const label = typeof item === 'object' ? item?.label || item?.name : ''
+      addTag(code, label)
+    })
+
+    feedbacks.forEach((fb) => {
+      const tags = getFeedbackTags(fb, t)
+      tags.forEach((tItem) => addTag(tItem.code, tItem.label))
+    })
+
+    const commonCodes = [
+      'summary_accurate',
+      'clear_concise',
+      'good_structure',
+      'context_preserved',
+      'key_points_covered',
+      'summary_inaccurate',
+      'missing_critical_info',
+      'hallucination',
+      'awkward_phrasing',
+      'too_long_or_short',
+      'poor_formatting',
+      'ocr_high_accuracy',
+      'ocr_unreadable_file',
+      'ocr_missing_large_text',
+      'ocr_wrong_language',
+      'ocr_character_errors',
+      'ocr_layout_broken',
+      'missing_info',
+      'clunky_sentences',
+      'spelling_grammar',
+      'loss_of_context',
+      'other',
+    ]
+    commonCodes.forEach((code) => addTag(code))
+
+    return Array.from(map.values())
+  }, [criteriaList, feedbacks, t])
+
+  const displayedFeedbacks = useMemo(() => {
+    return feedbacks.filter((fb) => {
+      if (feedbackRating) {
+        const ratingNum = Number(fb?.rating ?? fb?.score)
+        const targetRating = Number(feedbackRating)
+        if (Number.isFinite(targetRating)) {
+          if (Number.isFinite(ratingNum) && ratingNum > 0) {
+            if (ratingNum !== targetRating) return false
+          } else {
+            const raw = String(fb?.rating || '').toLowerCase()
+            if (targetRating >= 4 && raw !== 'like') return false
+            if (targetRating < 4 && raw !== 'dislike') return false
+          }
+        }
+      }
+      if (feedbackTag) {
+        const tags = getFeedbackTags(fb, t)
+        const hasTag = tags.some((tObj) => tObj.code === feedbackTag || tObj.label === feedbackTag)
+        if (!hasTag) return false
+      }
+      return true
+    })
+  }, [feedbacks, feedbackRating, feedbackTag, t])
+
   const renderFeedbackModeration = () => (
     <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1324,6 +1522,7 @@ function DashboardPage() {
           <h2 className="mt-2 text-xl font-semibold text-white">{t('dashboard.feedbackModerationUi.title')}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Trạng thái phản hồi */}
           <select
             value={feedbackReplyStatus}
             onChange={(e) => { setFeedbackReplyStatus(e.target.value); setFeedbackPage(1) }}
@@ -1333,10 +1532,33 @@ function DashboardPage() {
             <option value="pending">{t('dashboard.feedbackModerationUi.pending')}</option>
             <option value="replied">{t('dashboard.feedbackModerationUi.replied')}</option>
           </select>
-          <select value={feedbackRating} onChange={(e) => { setFeedbackRating(e.target.value); setFeedbackPage(1) }} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
+
+          {/* Lọc số sao */}
+          <select
+            value={feedbackRating}
+            onChange={(e) => { setFeedbackRating(e.target.value); setFeedbackPage(1) }}
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+          >
             <option value="">{t('dashboard.feedbackModerationUi.allRatings')}</option>
-            <option value="like">{t('dashboard.feedbackModerationUi.like')}</option>
-            <option value="dislike">{t('dashboard.feedbackModerationUi.dislike')}</option>
+            <option value="5">5 ★ ({t('dashboard.feedbackModerationUi.star5')})</option>
+            <option value="4">4 ★ ({t('dashboard.feedbackModerationUi.star4')})</option>
+            <option value="3">3 ★ ({t('dashboard.feedbackModerationUi.star3')})</option>
+            <option value="2">2 ★ ({t('dashboard.feedbackModerationUi.star2')})</option>
+            <option value="1">1 ★ ({t('dashboard.feedbackModerationUi.star1')})</option>
+          </select>
+
+          {/* Lọc theo tag / tiêu chí */}
+          <select
+            value={feedbackTag}
+            onChange={(e) => { setFeedbackTag(e.target.value); setFeedbackPage(1) }}
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 max-w-[220px] truncate"
+          >
+            <option value="">{t('dashboard.feedbackModerationUi.allTags')}</option>
+            {availableTags.map((tagItem) => (
+              <option key={tagItem.code} value={tagItem.code}>
+                {tagItem.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -1346,12 +1568,12 @@ function DashboardPage() {
         <p className="text-sm text-slate-400">{t('dashboard.feedbackModerationUi.loading')}</p>
       ) : (
         <div className="space-y-3">
-          {feedbacks.length === 0 ? (
+          {displayedFeedbacks.length === 0 ? (
             <div className="rounded-2xl border border-surface-border bg-surface-base/40 px-4 py-3 text-sm text-slate-400">
               {t('dashboard.feedbackModerationUi.empty')}
             </div>
           ) : (
-            feedbacks.map((feedback, index) => {
+            displayedFeedbacks.map((feedback, index) => {
               const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
               const replyStatus = getFeedbackReplyStatus(feedback)
               const isReplied = replyStatus === 'replied'
@@ -1375,14 +1597,69 @@ function DashboardPage() {
                 return String(value) === String(selectedTemplateValue)
               })
               const feedbackEmail = getFeedbackUserEmail(feedback)
+              const feedbackAuthorName = getFeedbackAuthorName(feedback, lang)
+              const feedbackTags = getFeedbackTags(feedback, t)
+              const userComment = getFeedbackUserComment(feedback)
 
               return (
-                <div key={id} className="rounded-2xl border border-surface-border bg-surface-base/40 px-4 py-4">
-                  <p className="text-sm text-white">{getFeedbackComment(feedback, lang)}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {t('dashboard.feedbackModerationUi.userEmail')}: {feedbackEmail || '-'}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">{t('dashboard.feedbackModerationUi.ratingLabel')}: {getFeedbackRatingLabel(feedback?.rating, t)}</p>
+                <div key={id} className="rounded-2xl border border-surface-border bg-surface-base/40 p-4 sm:p-5 space-y-3.5">
+                  {/* Tag (hiển thị to hơn) & Đánh giá sao */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {feedbackTags.length > 0 ? (
+                        feedbackTags.map((tagItem, tagIdx) => (
+                          <span
+                            key={`${tagItem.code || tagIdx}-${tagIdx}`}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-accent/20 border border-accent/40 px-3.5 py-1.5 text-base font-semibold text-white shadow-sm"
+                          >
+                            <span className="text-accent text-sm">🏷️</span>
+                            <span>{tagItem.label}</span>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs italic text-slate-500">
+                          {t('dashboard.feedbackModerationUi.noTag')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm">
+                        <span className="text-amber-400">★</span>
+                        <span>{getFeedbackRatingLabel(feedback?.rating, t)}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Comment của người dùng (ở dưới tag) */}
+                  <div className="rounded-xl border border-surface-border/70 bg-surface-base/70 p-3.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      {t('dashboard.feedbackModerationUi.userComment')}
+                    </p>
+                    {userComment ? (
+                      <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-wrap font-normal">
+                        {userComment}
+                      </p>
+                    ) : (
+                      <p className="text-xs italic text-slate-500">
+                        {t('dashboard.feedbackModerationUi.noComment')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Thông tin người gửi */}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                    <p>
+                      <span className="text-slate-500">{t('dashboard.feedbackModerationUi.userName')}:</span>{' '}
+                      <span className="text-slate-200 font-semibold">{feedbackAuthorName}</span>
+                    </p>
+                    {feedbackEmail && (
+                      <p>
+                        <span className="text-slate-500">{t('dashboard.feedbackModerationUi.userEmail')}:</span>{' '}
+                        <span className="text-slate-300 font-medium">{feedbackEmail}</span>
+                      </p>
+                    )}
+                  </div>
 
                   <div className="mt-3 grid gap-2 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)_auto]">
                     <select

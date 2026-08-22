@@ -13,7 +13,7 @@ Font.register({
   src: 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
 })
 
-const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
+const LENGTH_MAP = { 0: '10%', 1: '20%', 2: '30%' }
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
 const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
 const SUMMARY_COLLECTION_COLOR_STORAGE_KEY = 'vietnamese-summarizer-collection-colors'
@@ -799,7 +799,7 @@ function HomePage() {
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
-        formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
+        formData.append('length_type', LENGTH_MAP[lengthIndex] || '20%')
         if (selectedCollectionId) {
           formData.append('collection_id', selectedCollectionId)
         }
@@ -875,7 +875,7 @@ function HomePage() {
         return
       }
 
-      const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
+      const selectedSummaryLength = LENGTH_MAP[lengthIndex] || '20%'
       const textPayload = {
         text: inputText,
         do_summarize: mode === 'summary',
@@ -1234,7 +1234,7 @@ function HomePage() {
               {t('controls.summaryLength')}
             </span>
             <span className="text-sm font-semibold text-accent">
-              {t(`controls.${LENGTH_MAP[lengthIndex]}`)}
+              {LENGTH_MAP[lengthIndex]}
             </span>
           </div>
           <input
@@ -1247,9 +1247,9 @@ function HomePage() {
             className="w-full"
           />
           <div className="flex justify-between text-xs text-slate-500">
-            <span>{t('controls.short')}</span>
-            <span>{t('controls.medium')}</span>
-            <span>{t('controls.long')}</span>
+            <span>10%</span>
+            <span>20%</span>
+            <span>30%</span>
           </div>
         </div>
       </section>
