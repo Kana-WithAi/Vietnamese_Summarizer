@@ -373,6 +373,12 @@ function ProfilePage() {
       if (formState.newPassword && formState.newPassword.length < 8) {
         next.newPassword = t('profile.errors.newPassword')
       }
+      if (formState.newPassword && formState.newPassword.length > 72) {
+        next.newPassword = lang === 'vi' ? 'Mật khẩu mới không được vượt quá 72 ký tự.' : 'New password must not exceed 72 characters.'
+      }
+      if (formState.newPassword && formState.currentPassword && formState.newPassword === formState.currentPassword) {
+        next.newPassword = lang === 'vi' ? 'Mật khẩu mới không được trùng với mật khẩu hiện tại.' : 'New password cannot be the same as your current password.'
+      }
       if (formState.newPassword !== formState.confirmPassword) {
         next.confirmPassword = t('profile.errors.confirmPassword')
       }

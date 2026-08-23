@@ -272,7 +272,11 @@ function HistoryOverlay() {
   const createCollection = async () => {
     const trimmed = newCollectionName.trim()
     if (!trimmed) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được để trống.' : 'Collection name cannot be empty.')
+      return
+    }
+    if (trimmed.length > 100) {
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được vượt quá 100 ký tự.' : 'Collection name must not exceed 100 characters.')
       return
     }
 
@@ -331,17 +335,11 @@ function HistoryOverlay() {
 
     const trimmed = editingCollectionName.trim()
     if (!trimmed) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được để trống.' : 'Collection name cannot be empty.')
       return
     }
-
-    const hasDuplicate = collections.some(
-      (item) => item.id !== collection.id && String(item?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
-    )
-    if (hasDuplicate) {
-      setCollectionValidationError(
-        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
-      )
+    if (trimmed.length > 100) {
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được vượt quá 100 ký tự.' : 'Collection name must not exceed 100 characters.')
       return
     }
 

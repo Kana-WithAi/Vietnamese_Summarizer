@@ -38,6 +38,8 @@ function SignupPage() {
       next.password = t('signupPage.errors.emptyPassword')
     } else if (form.password.length < 8) {
       next.password = t('signupPage.errors.shortPassword')
+    } else if (form.password.length > 72) {
+      next.password = lang === 'vi' ? 'Mật khẩu không được vượt quá 72 ký tự.' : 'Password must not exceed 72 characters.'
     }
     if (form.password !== form.confirmPassword) {
       next.confirmPassword = t('signupPage.errors.mismatchPassword')

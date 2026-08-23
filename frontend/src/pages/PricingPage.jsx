@@ -143,11 +143,12 @@ function PricingPage() {
         (origin.includes('localhost') ? 'https://datn.yviand.com' : origin)
       const returnUrl = import.meta.env.VITE_PAYMENT_RETURN_URL || `${fallbackBaseUrl}/payments/status`
       const cancelUrl = import.meta.env.VITE_PAYMENT_CANCEL_URL || `${fallbackBaseUrl}/payments/cancel`
+      const ensureHttp = (url) => (/^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/+/, '')}`)
 
       const response = await paymentsApi.create({
         plan_id: plan.id,
-        return_url: returnUrl,
-        cancel_url: cancelUrl,
+        return_url: ensureHttp(returnUrl),
+        cancel_url: ensureHttp(cancelUrl),
       })
 
       const payload = response?.data || response

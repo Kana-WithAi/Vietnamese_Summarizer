@@ -752,6 +752,20 @@ function DashboardPage() {
   const dateParams = useMemo(() => ({ from_date: fromDate, to_date: toDate }), [fromDate, toDate])
 
   const loadAnalytics = async () => {
+    if (fromDate && toDate && fromDate > toDate) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.' : 'From date must be earlier than or equal to To date.')
+      return
+    }
+    const todayStr = new Date().toISOString().split('T')[0]
+    if (toDate && toDate > todayStr) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày kết thúc không được vượt quá ngày hiện tại.' : 'To date cannot be in the future.')
+      return
+    }
+    if (fromDate && fromDate > todayStr) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày bắt đầu không được vượt quá ngày hiện tại.' : 'From date cannot be in the future.')
+      return
+    }
+
     setAnalyticsLoading(true)
     setAnalyticsError('')
     try {
@@ -847,16 +861,24 @@ function DashboardPage() {
     }
   }
 
-  const handleToggleBan = async (user) => {
-    const userId = user?.id || user?._id
+  const handleToggleBan = async (targetUser) => {
+    const userId = targetUser?.id || targetUser?._id || targetUser?.user_id
     if (!userId) return
-    const status = String(user?.status || '').toLowerCase()
+    if (user?.id && String(user.id) === String(userId)) {
+      alert(lang === 'vi' ? 'Admin không thể tự vô hiệu hóa tài khoản của chính mình.' : 'Administrators cannot disable their own account.')
+      return
+    }
+    const status = String(targetUser?.status || '').toLowerCase()
     const isBanned = status === 'banned' || status === 'suspended'
     try {
       if (isBanned) {
         await adminApi.users.unban(userId)
       } else {
-        await adminApi.users.ban(userId, { reason: 'Banned by admin' })
+        const promptMsg = lang === 'vi' ? 'Lý do vô hiệu hóa (tối đa 500 ký tự):' : 'Ban reason (max 500 characters):'
+        const rawReason = window.prompt(promptMsg)
+        if (rawReason === null) return
+        const reason = (rawReason || '').trim().slice(0, 500) || (lang === 'vi' ? 'Vô hiệu hóa bởi Quản trị viên' : 'Disabled by Admin')
+        await adminApi.users.ban(userId, { reason })
       }
       await loadUsers(userFilters)
     } catch (error) {
@@ -894,19 +916,40 @@ function DashboardPage() {
   }
 
   const handleSavePlan = async () => {
-    if (!planForm.name || !planForm.display_name) {
+    const charLimit = Number(planForm.char_limit) || 0
+    const durationDays = Number(planForm.duration_days) || 0
+    const dailyWordLimit = Number(planForm.daily_word_limit) || 0
+    const price = Number(planForm.price) || 0
+
+    if (!planForm.name?.trim() || !planForm.display_name?.trim()) {
       alert(lang === 'vi' ? 'Vui lòng nhập tên gói và tên hiển thị.' : 'Please enter plan name and display name.')
+      return
+    }
+    if (charLimit < 100) {
+      alert(lang === 'vi' ? 'Giới hạn ký tự/từ tối thiểu là 100.' : 'Character limit must be at least 100.')
+      return
+    }
+    if (durationDays < 1 || durationDays > 3650) {
+      alert(lang === 'vi' ? 'Thời hạn gói phải từ 1 đến 3650 ngày.' : 'Duration must be between 1 and 3650 days.')
+      return
+    }
+    if (dailyWordLimit < 0) {
+      alert(lang === 'vi' ? 'Hạn mức từ theo ngày không được âm.' : 'Daily word limit cannot be negative.')
+      return
+    }
+    if (price < 0) {
+      alert(lang === 'vi' ? 'Giá gói cước không được âm.' : 'Price cannot be negative.')
       return
     }
 
     const payload = {
-      name: planForm.name,
-      display_name: planForm.display_name,
-      char_limit: Number(planForm.char_limit) || 0,
-      daily_word_limit: Number(planForm.daily_word_limit) || 0,
-      price: Number(planForm.price) || 0,
-      duration_days: Number(planForm.duration_days) || 30,
-      description: planForm.description,
+      name: planForm.name.trim(),
+      display_name: planForm.display_name.trim(),
+      char_limit: charLimit,
+      daily_word_limit: dailyWordLimit,
+      price: price,
+      duration_days: durationDays,
+      description: (planForm.description || '').trim().slice(0, 500),
       is_active: Boolean(planForm.is_active),
     }
 
@@ -939,14 +982,19 @@ function DashboardPage() {
   const handleReplyFeedback = async (feedback, index) => {
     const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
     const replyForm = replyForms[id]
-    if (!replyForm?.reply_content) {
+    const replyContent = String(replyForm?.reply_content || '').trim()
+    if (!replyContent) {
       alert(lang === 'vi' ? 'Vui lòng nhập nội dung phản hồi.' : 'Please enter reply content.')
+      return
+    }
+    if (replyContent.length < 5 || replyContent.length > 2000) {
+      alert(lang === 'vi' ? 'Nội dung phản hồi phải từ 5 đến 2000 ký tự.' : 'Reply content must be between 5 and 2000 characters.')
       return
     }
     try {
       await adminApi.feedbacks.reply(id, {
         template_type: replyForm.template_type || undefined,
-        reply_content: replyForm.reply_content,
+        reply_content: replyContent,
         admin_replied: 'replied',
       })
       await loadFeedbacks()
@@ -1319,9 +1367,10 @@ function DashboardPage() {
         <input value={userFiltersDraft.email} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, email: e.target.value }))} placeholder={t('dashboard.filterByEmail')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
         <input value={userFiltersDraft.name} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, name: e.target.value }))} placeholder={t('dashboard.filterByName')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
         <select value={userFiltersDraft.status} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, status: e.target.value }))} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
-          <option value="">{lang === 'vi' ? 'Tất cả trạng thái' : 'All status'}</option>
-          <option value="active">active</option>
-          <option value="banned">banned</option>
+          <option value="">{t('dashboard.userStatusOptions.all')}</option>
+          <option value="active">{t('dashboard.userStatusOptions.active')}</option>
+          <option value="banned">{t('dashboard.userStatusOptions.banned')}</option>
+          <option value="pending">{t('dashboard.userStatusOptions.pending')}</option>
         </select>
       </div>
 
@@ -1352,23 +1401,37 @@ function DashboardPage() {
               {users.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
               ) : (
-                users.map((user, index) => {
-                  const status = String(user?.status || '').toLowerCase()
+                users.map((targetUser, index) => {
+                  const status = String(targetUser?.status || '').toLowerCase()
                   const isBanned = status === 'banned' || status === 'suspended'
-                  const banReason = user?.ban_reason || user?.banReason || user?.reason || '-'
+                  const isPending = status === 'pending'
+                  const banReason = targetUser?.ban_reason || targetUser?.banReason || targetUser?.reason || '-'
+                  const statusLabel = isBanned
+                    ? t('dashboard.userStatusOptions.banned')
+                    : isPending
+                      ? t('dashboard.userStatusOptions.pending')
+                      : status === 'active'
+                        ? t('dashboard.userStatusOptions.active')
+                        : targetUser?.status || '-'
+                  const statusBadgeClass = isBanned
+                    ? 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
+                    : isPending
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
+                      : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+
                   return (
-                    <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
-                      <span className="truncate text-white">{user?.full_name || user?.fullName || user?.name || '-'}</span>
-                      <span className="truncate text-slate-300">{user?.email || '-'}</span>
-                      <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
-                        {user?.status || '-'}
+                    <div key={targetUser?.id || targetUser?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
+                      <span className="truncate text-white">{targetUser?.full_name || targetUser?.fullName || targetUser?.name || '-'}</span>
+                      <span className="truncate text-slate-300">{targetUser?.email || '-'}</span>
+                      <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${statusBadgeClass}`}>
+                        {statusLabel}
                       </span>
                       <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
                         {banReason}
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleToggleBan(user)}
+                        onClick={() => handleToggleBan(targetUser)}
                         className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${isBanned ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'}`}
                       >
                         {isBanned ? t('dashboard.unban') : t('dashboard.ban')}

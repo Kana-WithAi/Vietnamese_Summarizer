@@ -12,19 +12,230 @@ function getPreferredLanguage() {
   return htmlLang === 'en' ? 'en' : 'vi'
 }
 
-function formatLocalizedApiError(message) {
-  if (typeof message !== 'string') {
-    return message
+export const API_ERROR_MESSAGES = {
+  // Group 1: Analytics
+  INVALID_DATE_FORMAT: {
+    vi: 'Định dạng ngày không hợp lệ. Vui lòng sử dụng định dạng YYYY-MM-DD.',
+    en: 'Invalid date format. Please use YYYY-MM-DD.',
+  },
+  INVALID_DATE_ORDER: {
+    vi: 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
+    en: 'From date must be earlier than or equal to To date.',
+  },
+  DATE_IN_FUTURE: {
+    vi: 'Ngày tra cứu không được vượt quá ngày hiện tại.',
+    en: 'Selected date cannot be in the future.',
+  },
+
+  // Group 2: Summarize & OCR
+  TEXT_TOO_SHORT: {
+    vi: 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.',
+    en: 'Text is too short. A minimum of 10 characters is required.',
+  },
+  TEXT_TOO_LONG: {
+    vi: 'Văn bản vượt quá hạn mức từ cho phép của gói cước hiện tại.',
+    en: 'Text exceeds the maximum word limit for your current plan.',
+  },
+  INVALID_LENGTH_RATIO: {
+    vi: 'Tỷ lệ độ dài không hợp lệ (phải lớn hơn 0 và nhỏ hơn hoặc bằng 100%).',
+    en: 'Invalid length ratio (must be greater than 0 and up to 100%).',
+  },
+  DAILY_WORD_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã dùng hết hạn mức từ tóm tắt trong ngày. Hạn mức sẽ được làm mới vào 00:00 ngày mai.',
+    en: 'You have reached your daily word limit. It will reset at 00:00 tomorrow.',
+  },
+  EMPTY_FILE: {
+    vi: 'Tệp tải lên không được rỗng (0 bytes).',
+    en: 'The uploaded file cannot be empty (0 bytes).',
+  },
+  UNSUPPORTED_FILE_TYPE: {
+    vi: 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.',
+    en: 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.',
+  },
+  UNSUPPORTED_FILE: {
+    vi: 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.',
+    en: 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.',
+  },
+  FILE_TOO_LARGE: {
+    vi: 'Dung lượng tệp vượt quá giới hạn tối đa cho phép của gói cước.',
+    en: 'The file size exceeds the allowed limit for your subscription plan.',
+  },
+  DAILY_EXTRACT_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã dùng hết số lượt trích xuất tài liệu trong ngày hôm nay.',
+    en: 'You have reached your daily document extraction limit.',
+  },
+  TEXT_EXTRACT_FAILED: {
+    vi: 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.',
+    en: 'Unable to extract content from this file. Please try another file or paste text manually.',
+  },
+  ML_SERVICE_UNAVAILABLE: {
+    vi: 'Hệ thống AI xử lý đang bận hoặc tạm thời gián đoạn. Vui lòng thử lại sau ít phút.',
+    en: 'The AI summarization service is currently busy or unavailable. Please try again shortly.',
+  },
+
+  // Group 3: Collections & History
+  COLLECTION_NAME_REQUIRED: {
+    vi: 'Tên thư mục không được để trống.',
+    en: 'Collection name cannot be empty.',
+  },
+  COLLECTION_NAME_TOO_LONG: {
+    vi: 'Tên thư mục không được vượt quá 100 ký tự.',
+    en: 'Collection name must not exceed 100 characters.',
+  },
+  INVALID_COLOR: {
+    vi: 'Mã màu không hợp lệ. Vui lòng sử dụng mã màu HEX (ví dụ: #7C3AED hoặc #F53).',
+    en: 'Invalid color format. Please use a HEX color code (e.g. #7C3AED or #F53).',
+  },
+  COLLECTION_DESC_TOO_LONG: {
+    vi: 'Mô tả thư mục không được vượt quá 500 ký tự.',
+    en: 'Collection description must not exceed 500 characters.',
+  },
+  INVALID_ID: {
+    vi: 'Mã định danh không hợp lệ.',
+    en: 'Invalid identifier format.',
+  },
+  FOLDER_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã đạt giới hạn số lượng thư mục tối đa của gói cước hiện tại. Vui lòng nâng cấp gói để tạo thêm.',
+    en: 'You have reached the maximum folder limit for your current plan. Upgrade to create more.',
+  },
+  NOT_FOUND: {
+    vi: 'Không tìm thấy dữ liệu yêu cầu hoặc mục này đã bị xóa.',
+    en: 'The requested resource was not found or has been removed.',
+  },
+
+  // Group 4: Feedbacks
+  CONTENT_REQUIRED: {
+    vi: 'Vui lòng chọn ít nhất một tiêu chí đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.',
+    en: 'Please select at least one criteria tag or provide comments for ratings of 1 to 3 stars.',
+  },
+  FORBIDDEN: {
+    vi: 'Bạn không có quyền thực hiện thao tác này.',
+    en: 'You do not have permission to perform this action.',
+  },
+
+  // Group 5: Payments
+  PLAN_NOT_FOUND: {
+    vi: 'Gói cước không tồn tại hoặc đã ngừng cung cấp.',
+    en: 'Subscription plan not found or no longer available.',
+  },
+  INVALID_URL: {
+    vi: 'Đường dẫn liên kết không hợp lệ (phải bắt đầu bằng http:// hoặc https://).',
+    en: 'Invalid URL format (must start with http:// or https://).',
+  },
+  TRANSACTION_NOT_PENDING: {
+    vi: 'Chỉ có thể hủy giao dịch đang trong trạng thái chờ thanh toán.',
+    en: 'Only pending transactions can be cancelled.',
+  },
+
+  // Group 6: Auth
+  EMAIL_EXISTS: {
+    vi: 'Địa chỉ email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.',
+    en: 'This email address is already registered. Please log in or use another email.',
+  },
+  PASSWORD_TOO_SHORT: {
+    vi: 'Mật khẩu quá ngắn. Yêu cầu tối thiểu 8 ký tự.',
+    en: 'Password is too short. Minimum 8 characters required.',
+  },
+  PASSWORD_TOO_LONG: {
+    vi: 'Mật khẩu quá dài. Tối đa không quá 72 ký tự.',
+    en: 'Password is too long. Maximum 72 characters allowed.',
+  },
+  SAME_PASSWORD: {
+    vi: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.',
+    en: 'New password cannot be the same as your current password.',
+  },
+  INVALID_PASSWORD: {
+    vi: 'Mật khẩu hiện tại không chính xác.',
+    en: 'Current password is incorrect.',
+  },
+  INVALID_OTP: {
+    vi: 'Mã xác thực OTP không hợp lệ hoặc đã hết hạn (5 phút).',
+    en: 'Invalid or expired OTP code (5-minute expiration).',
+  },
+  OTP_RATE_LIMIT: {
+    vi: 'Vui lòng đợi 60 giây trước khi yêu cầu gửi lại mã OTP mới.',
+    en: 'Please wait 60 seconds before requesting a new OTP.',
+  },
+
+  // Group 7: Admin
+  CANNOT_BAN_SELF: {
+    vi: 'Quản trị viên không thể tự vô hiệu hóa tài khoản của chính mình.',
+    en: 'Administrators cannot disable their own account.',
+  },
+  VALIDATION_ERROR: {
+    vi: 'Dữ liệu đầu vào không hợp lệ. Vui lòng kiểm tra lại thông tin.',
+    en: 'Invalid input data. Please verify your information.',
+  },
+}
+
+function extractErrorDetails(data) {
+  let code = ''
+  let message = ''
+
+  if (typeof data === 'string') {
+    message = data
+  } else if (data && typeof data === 'object') {
+    if (data.error && typeof data.error === 'object') {
+      code = String(data.error.code || '').trim().toUpperCase()
+      message = String(data.error.message || '').trim()
+    } else if (typeof data.error === 'string') {
+      message = data.error.trim()
+    }
+
+    if (!code && data.code) {
+      code = String(data.code).trim().toUpperCase()
+    }
+    if (!message && data.message) {
+      message = String(data.message).trim()
+    }
+    if (!message && data.detail) {
+      message = String(data.detail).trim()
+    }
+    if (!message && data.msg) {
+      message = String(data.msg).trim()
+    }
   }
 
-  const normalized = message.trim()
-  if (!normalized) {
-    return message
-  }
+  return { code, message }
+}
 
+function isLikelyTechnicalBackendMessage(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return false
+
+  const technicalMarkers = [
+    'panic:',
+    'goroutine',
+    'stack trace',
+    'traceback',
+    'sql:',
+    'database error',
+    'internal server error',
+    'runtime error',
+    'exception:',
+    'at ',
+    'call stack',
+    'request id',
+    'trace id',
+    'debug:',
+    'error id',
+    '<html',
+    '<!doctype',
+  ]
+
+  return technicalMarkers.some((marker) => normalized.includes(marker))
+}
+
+export function getLocalizedErrorMessage(data, defaultFallback) {
   const lang = getPreferredLanguage()
-  const lower = normalized.toLowerCase()
+  const { code, message } = extractErrorDetails(data)
 
+  if (code && API_ERROR_MESSAGES[code]) {
+    return API_ERROR_MESSAGES[code][lang] || API_ERROR_MESSAGES[code].en
+  }
+
+  const lower = (message || '').toLowerCase()
   const commonTranslations = {
     'valid authentication token is required': {
       en: 'Please log in again to continue.',
@@ -66,78 +277,17 @@ function formatLocalizedApiError(message) {
     }
   }
 
-  return normalized
-}
-
-function isLikelyTechnicalBackendMessage(value) {
-  if (typeof value !== 'string') {
-    return false
+  if (defaultFallback) {
+    return defaultFallback
   }
 
-  const normalized = value.trim()
-  if (!normalized) {
-    return false
-  }
-
-  const lower = normalized.toLowerCase()
-  const technicalMarkers = [
-    'panic:',
-    'goroutine',
-    'stack trace',
-    'traceback',
-    'sql:',
-    'database error',
-    'internal server error',
-    'runtime error',
-    'exception:',
-    'at ',
-    'call stack',
-    'request id',
-    'trace id',
-    'debug:',
-    'error id',
-  ]
-
-  return technicalMarkers.some((marker) => lower.includes(marker))
+  return lang === 'vi'
+    ? 'Yêu cầu không thể hoàn thành. Vui lòng thử lại.'
+    : 'The request could not be completed. Please try again.'
 }
 
 function getErrorMessage(data) {
-  const genericMessage = getPreferredLanguage() === 'vi'
-    ? 'Yêu cầu không thể hoàn thành.'
-    : 'The request could not be completed.'
-
-  if (!data) {
-    return genericMessage
-  }
-
-  if (typeof data === 'string') {
-    const formatted = formatLocalizedApiError(data)
-    return isLikelyTechnicalBackendMessage(data) ? genericMessage : formatted
-  }
-
-  if (typeof data === 'object') {
-    const candidates = [data.message, data.error, data.detail, data.msg]
-
-    for (const candidate of candidates) {
-      if (typeof candidate === 'string' && candidate.trim()) {
-        if (isLikelyTechnicalBackendMessage(candidate)) {
-          return genericMessage
-        }
-        return formatLocalizedApiError(candidate)
-      }
-
-      if (candidate && typeof candidate === 'object') {
-        const nested = getErrorMessage(candidate)
-        if (nested && nested !== genericMessage) {
-          return nested
-        }
-      }
-    }
-
-    return genericMessage
-  }
-
-  return genericMessage
+  return getLocalizedErrorMessage(data)
 }
 
 async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
@@ -172,8 +322,12 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 
   if (!response.ok) {
-    const error = new Error(getErrorMessage(data))
+    const errorDetails = extractErrorDetails(data)
+    const localizedMessage = getLocalizedErrorMessage(data)
+    const error = new Error(localizedMessage)
     error.status = response.status
+    error.code = errorDetails.code
+    error.rawMessage = errorDetails.message
     error.data = data
     throw error
   }
@@ -213,8 +367,12 @@ async function requestBinary(path, { method = 'GET', body, auth = false, headers
       data = await response.text()
     }
 
-    const error = new Error(getErrorMessage(data))
+    const errorDetails = extractErrorDetails(data)
+    const localizedMessage = getLocalizedErrorMessage(data)
+    const error = new Error(localizedMessage)
     error.status = response.status
+    error.code = errorDetails.code
+    error.rawMessage = errorDetails.message
     error.data = data
     throw error
   }

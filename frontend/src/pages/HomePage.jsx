@@ -105,95 +105,42 @@ function extractSummaryIdFromHistoryResponse(response) {
 
 function getSummarizeErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const data = error?.data
-  const dataObject = data && typeof data === 'object' ? data : {}
-  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
-  const backendMessage = String(dataObject?.message || '')
-  const rawText = String(
-    dataObject?.message ||
-    dataObject?.error ||
-    (typeof data === 'string' ? data : '') ||
-    error?.message ||
-    '',
-  ).toLowerCase()
-
-  const looksLikeHtmlError = rawText.includes('<html') || rawText.includes('<!doctype')
-
-  const hasUsableBackendMessage =
-    backendMessage.trim() &&
-    backendMessage.length < 300 &&
-    !backendMessage.toLowerCase().includes('<html') &&
-    !backendMessage.toLowerCase().includes('<!doctype')
-
-  const looksLikeLimitError =
-    code === 'TEXT_TOO_LONG' ||
-    code === 'CHAR_LIMIT_EXCEEDED' ||
-    code === 'WORD_LIMIT_EXCEEDED' ||
-    code === 'INPUT_LIMIT_EXCEEDED' ||
-    status === 413 ||
-    status === 422 ||
-    rawText.includes('character limit') ||
-    rawText.includes('word limit') ||
-    rawText.includes('too long') ||
-    rawText.includes('limit')
-
-  const looksLikeEmptyTextError =
-    code === 'EMPTY_TEXT' ||
-    (status === 400 && (rawText.includes('empty') || rawText.includes('whitespace')))
+  const code = String(error?.code || '').toUpperCase()
 
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
   }
 
-  if (looksLikeEmptyTextError) {
+  if (code === 'TEXT_TOO_SHORT') {
     return lang === 'vi'
-      ? 'Vui lòng nhập nội dung trước khi tóm tắt.'
-      : 'Please enter text before summarizing.'
+      ? 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.'
+      : 'Text is too short. A minimum of 10 characters is required.'
+  }
+
+  if (code === 'TEXT_TOO_LONG' || code === 'CHAR_LIMIT_EXCEEDED' || code === 'WORD_LIMIT_EXCEEDED') {
+    return lang === 'vi'
+      ? 'Văn bản vượt quá hạn mức từ cho phép của gói cước hiện tại. Hãy rút ngắn nội dung hoặc nâng cấp gói.'
+      : 'Your text exceeds the word limit for your current plan. Shorten it or upgrade your plan.'
   }
 
   if (code === 'DAILY_WORD_LIMIT_EXCEEDED' || status === 429) {
-    if (hasUsableBackendMessage) return backendMessage
     return lang === 'vi'
-      ? 'Bạn đã dùng hết giới hạn từ hôm nay. Giới hạn sẽ reset lúc 00:00 ngày mai.'
+      ? 'Bạn đã dùng hết hạn mức từ tóm tắt trong ngày. Hạn mức sẽ được làm mới vào 00:00 ngày mai.'
       : 'You have reached your daily word limit. It will reset at 00:00 tomorrow.'
   }
 
   if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
-    if (hasUsableBackendMessage) return backendMessage
     return lang === 'vi'
-      ? 'Dịch vụ tóm tắt tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
-      : 'The summarization service is temporarily unavailable. Please try again in a few minutes.'
+      ? 'Dịch vụ AI xử lý tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The AI summarization service is temporarily unavailable. Please try again in a few minutes.'
   }
 
-  if (looksLikeLimitError) {
-    return lang === 'vi'
-      ? 'Văn bản vượt quá giới hạn của gói hiện tại. Hãy rút ngắn nội dung hoặc nâng cấp gói để tóm tắt.'
-      : 'Your text exceeds the limit for your current plan. Shorten it or upgrade your tier to continue.'
-  }
-
-  if (hasUsableBackendMessage) {
-    return backendMessage
-  }
-
-  if (status === 400) {
-    return lang === 'vi'
-      ? 'Yêu cầu tóm tắt chưa hợp lệ. Vui lòng kiểm tra lại nội dung đầu vào.'
-      : 'The summarize request is invalid. Please check your input and try again.'
+  if (error?.message) {
+    return error.message
   }
 
   if (status >= 500) {
-    if (!looksLikeHtmlError && rawText.trim()) {
-      return lang === 'vi'
-        ? 'Máy chủ tạm thời không xử lý được yêu cầu tóm tắt. Vui lòng thử lại sau.'
-        : 'The server cannot process this summarize request right now. Please try again later.'
-    }
     return t('homePage.errors.serverError')
-  }
-
-  if (status > 0) {
-    return lang === 'vi'
-      ? `Không thể tóm tắt lúc này (mã ${status}). Vui lòng thử lại.`
-      : `Unable to summarize right now (status ${status}). Please try again.`
   }
 
   return lang === 'vi'
@@ -203,116 +150,65 @@ function getSummarizeErrorMessage(error, t, lang) {
 
 function getFileUploadErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const data = error?.data
-  const dataObject = data && typeof data === 'object' ? data : {}
-  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
-  const backendMessage = String(dataObject?.message || '')
-  const rawText = String(
-    dataObject?.message ||
-    dataObject?.error ||
-    (typeof data === 'string' ? data : '') ||
-    error?.message ||
-    '',
-  ).toLowerCase()
-
-  const hasUsableBackendMessage =
-    backendMessage.trim() &&
-    backendMessage.length < 300 &&
-    !backendMessage.toLowerCase().includes('<html') &&
-    !backendMessage.toLowerCase().includes('<!doctype')
-
-  if (status === 400 || code === 'UNSUPPORTED_FILE') {
-    return lang === 'vi'
-      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .doc, .docx, .txt, .png, .jpg hoặc .jpeg.'
-      : 'Unsupported file type. Please upload a .pdf, .doc, .docx, .txt, .png, .jpg, or .jpeg file.'
-  }
-
-  if (code === 'VALIDATION_ERROR') {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Tệp tải lên chưa hợp lệ. Vui lòng kiểm tra lại tệp và thử lại.'
-      : 'The uploaded file is invalid. Please verify the file and try again.'
-  }
-
-  if (code === 'TEXT_EXTRACT_FAILED' || status === 422) {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.'
-      : 'We could not extract readable text from this file. Please try another file or paste the text manually.'
-  }
-
-  const looksLikeFileTooLarge =
-    code === 'FILE_TOO_LARGE' ||
-    (status === 413 && !rawText.includes('text_too_long')) ||
-    rawText.includes('file too large') ||
-    rawText.includes('payload too large') ||
-    rawText.includes('request entity too large')
-
-  if (looksLikeFileTooLarge) {
-    return lang === 'vi'
-      ? 'Tệp quá lớn để xử lý. Vui lòng chọn tệp nhỏ hơn.'
-      : 'The file is too large to process. Please choose a smaller file.'
-  }
-
-  const looksLikeContentLimitError =
-    code === 'TEXT_TOO_LONG' ||
-    code === 'CHAR_LIMIT_EXCEEDED' ||
-    code === 'WORD_LIMIT_EXCEEDED' ||
-    code === 'INPUT_LIMIT_EXCEEDED' ||
-    code === 'EMPTY_TEXT' ||
-    rawText.includes('character limit') ||
-    rawText.includes('word limit') ||
-    rawText.includes('input limit') ||
-    rawText.includes('too long') ||
-    (rawText.includes('limit') && !rawText.includes('rate limit'))
-
-  if (looksLikeContentLimitError) {
-    return lang === 'vi'
-      ? 'Nội dung trong tệp vượt quá giới hạn của gói hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói để tiếp tục.'
-      : 'The file content exceeds the limit for your current plan. Shorten the content or upgrade your plan to continue.'
-  }
-
-  if (status === 429 || code === 'DAILY_EXTRACT_LIMIT_EXCEEDED' || code === 'DAILY_WORD_LIMIT_EXCEEDED') {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Bạn đã hết lượt trích xuất trong ngày. Vui lòng thử lại vào ngày mai.'
-      : 'You have reached your daily extraction limit. Please try again tomorrow.'
-  }
-
-  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Dịch vụ tóm tắt tệp tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
-      : 'The file summarization service is temporarily unavailable. Please try again in a few minutes.'
-  }
+  const code = String(error?.code || '').toUpperCase()
 
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
   }
 
-  if (hasUsableBackendMessage) {
-    return backendMessage
+  if (code === 'EMPTY_FILE') {
+    return lang === 'vi'
+      ? 'Tệp tải lên không được rỗng (0 bytes).'
+      : 'The uploaded file cannot be empty (0 bytes).'
   }
 
-  if (status === 400) {
+  if (code === 'UNSUPPORTED_FILE_TYPE' || code === 'UNSUPPORTED_FILE') {
     return lang === 'vi'
-      ? 'Yêu cầu tóm tắt tệp chưa hợp lệ. Vui lòng kiểm tra lại tệp đầu vào.'
-      : 'The file summarize request is invalid. Please verify the uploaded file.'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.'
+      : 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.'
+  }
+
+  if (code === 'FILE_TOO_LARGE' || status === 413) {
+    return lang === 'vi'
+      ? 'Dung lượng tệp vượt quá giới hạn tối đa cho phép của gói cước. Vui lòng chọn tệp nhỏ hơn.'
+      : 'The file size exceeds the allowed limit for your subscription plan. Please choose a smaller file.'
+  }
+
+  if (code === 'DAILY_EXTRACT_LIMIT_EXCEEDED' || status === 429) {
+    return lang === 'vi'
+      ? 'Bạn đã dùng hết số lượt trích xuất tài liệu trong ngày hôm nay.'
+      : 'You have reached your daily document extraction limit.'
+  }
+
+  if (code === 'TEXT_EXTRACT_FAILED' || status === 422) {
+    return lang === 'vi'
+      ? 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.'
+      : 'We could not extract readable text from this file. Please try another file or paste text manually.'
+  }
+
+  if (code === 'TEXT_TOO_LONG' || code === 'CHAR_LIMIT_EXCEEDED' || code === 'WORD_LIMIT_EXCEEDED') {
+    return lang === 'vi'
+      ? 'Nội dung trong tệp vượt quá giới hạn của gói cước hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói.'
+      : 'The file content exceeds the limit for your current plan. Shorten the content or upgrade your plan.'
+  }
+
+  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
+    return lang === 'vi'
+      ? 'Dịch vụ xử lý tệp tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The file service is temporarily unavailable. Please try again in a few minutes.'
+  }
+
+  if (error?.message) {
+    return error.message
   }
 
   if (status >= 500) {
     return t('homePage.errors.serverError')
   }
 
-  if (status > 0) {
-    return lang === 'vi'
-      ? `Không thể xử lý tệp lúc này (mã ${status}). Vui lòng thử lại.`
-      : `Unable to process this file right now (status ${status}). Please try again.`
-  }
-
   return lang === 'vi'
-    ? 'Không thể kết nối tới dịch vụ tóm tắt tệp. Vui lòng kiểm tra mạng và thử lại.'
-    : 'Cannot reach the file summarization service. Please check your connection and try again.'
+    ? 'Yêu cầu xử lý tệp chưa hợp lệ. Vui lòng kiểm tra lại tệp đầu vào.'
+    : 'The file processing request is invalid. Please verify the uploaded file.'
 }
 
 function HomePage() {
@@ -561,6 +457,10 @@ function HomePage() {
       setCreateError(lang === 'vi' ? 'Vui lòng nhập tên bộ sưu tập.' : 'Please enter a collection title.')
       return
     }
+    if (trimmed.length > 100) {
+      setCreateError(lang === 'vi' ? 'Tên bộ sưu tập không được vượt quá 100 ký tự.' : 'Collection title must not exceed 100 characters.')
+      return
+    }
 
     const exists = collections.some(
       (c) => String(c?.name || c?.title || '').trim().toLowerCase() === trimmed.toLowerCase(),
@@ -780,6 +680,27 @@ function HomePage() {
 
   const handleSummarize = async () => {
     if (!inputText.trim() && !selectedUploadFile) return
+
+    if (!selectedUploadFile) {
+      const trimmed = inputText.trim()
+      if (trimmed.length < 10) {
+        setErrorMessage(
+          lang === 'vi'
+            ? 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.'
+            : 'Text is too short. A minimum of 10 characters is required.',
+        )
+        return
+      }
+    }
+
+    if (selectedUploadFile && selectedUploadFile.size === 0) {
+      setErrorMessage(
+        lang === 'vi'
+          ? 'Tệp tải lên không được rỗng (0 bytes).'
+          : 'The uploaded file cannot be empty (0 bytes).',
+      )
+      return
+    }
 
     if (mode === 'ocr' && !selectedUploadFile) {
       setErrorMessage(t('ocr.requiresUpload'))
@@ -1031,6 +952,15 @@ function HomePage() {
         lang === 'vi'
           ? 'Vui lòng chọn một lý do đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.'
           : 'Please select a reason tag or provide a comment for low ratings.',
+      )
+      return
+    }
+
+    if (trimmedComment.length > 1000) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Nội dung nhận xét không được vượt quá 1000 ký tự.'
+          : 'Comment must not exceed 1000 characters.',
       )
       return
     }
