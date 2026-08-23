@@ -12,8 +12,31 @@ Font.register({
   family: 'Noto Sans Vietnamese',
   src: 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
 })
+const LENGTH_OPTIONS = {
+  summary: [
+    { label: '10%', payload: '0.1' },
+    { label: '20%', payload: '0.2' },
+    { label: '30%', payload: '0.3' },
+  ],
+  extract: [
+    { label: '60%', payload: '0.6' },
+    { label: '70%', payload: '0.7' },
+    { label: '80%', payload: '0.8' },
+  ],
+}
 
-const LENGTH_MAP = { 0: '10%', 1: '20%', 2: '30%' }
+function getSelectedLengthPayload(currentMode, index) {
+  const options = LENGTH_OPTIONS[currentMode] || LENGTH_OPTIONS.summary
+  const safeIndex = Math.max(0, Math.min(Number(index) || 0, options.length - 1))
+  return options[safeIndex]?.payload || (currentMode === 'extract' ? '0.7' : '0.2')
+}
+
+function getSelectedLengthLabel(currentMode, index) {
+  const options = LENGTH_OPTIONS[currentMode] || LENGTH_OPTIONS.summary
+  const safeIndex = Math.max(0, Math.min(Number(index) || 0, options.length - 1))
+  return options[safeIndex]?.label || (currentMode === 'extract' ? '70%' : '20%')
+}
+
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
 const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
 const SUMMARY_COLLECTION_COLOR_STORAGE_KEY = 'vietnamese-summarizer-collection-colors'
@@ -799,7 +822,7 @@ function HomePage() {
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
-        formData.append('length_type', LENGTH_MAP[lengthIndex] || '20%')
+        formData.append('length_type', getSelectedLengthPayload(mode, lengthIndex))
         if (selectedCollectionId) {
           formData.append('collection_id', selectedCollectionId)
         }
@@ -875,7 +898,7 @@ function HomePage() {
         return
       }
 
-      const selectedSummaryLength = LENGTH_MAP[lengthIndex] || '20%'
+      const selectedSummaryLength = getSelectedLengthPayload(mode, lengthIndex)
       const textPayload = {
         text: inputText,
         do_summarize: mode === 'summary',
@@ -1228,30 +1251,32 @@ function HomePage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:min-w-[280px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              {t('controls.summaryLength')}
-            </span>
-            <span className="text-sm font-semibold text-accent">
-              {LENGTH_MAP[lengthIndex]}
-            </span>
+        {mode !== 'ocr' && (
+          <div className="flex flex-col gap-2 sm:min-w-[280px]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                {mode === 'extract' ? t('controls.extractLength') : t('controls.summaryLength')}
+              </span>
+              <span className="text-sm font-semibold text-accent">
+                {getSelectedLengthLabel(mode, lengthIndex)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={1}
+              value={lengthIndex}
+              onChange={(e) => setLengthIndex(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-slate-500">
+              {(LENGTH_OPTIONS[mode] || LENGTH_OPTIONS.summary).map((opt) => (
+                <span key={opt.label}>{opt.label}</span>
+              ))}
+            </div>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={1}
-            value={lengthIndex}
-            onChange={(e) => setLengthIndex(Number(e.target.value))}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-slate-500">
-            <span>10%</span>
-            <span>20%</span>
-            <span>30%</span>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Workspace */}
