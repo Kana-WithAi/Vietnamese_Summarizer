@@ -14,21 +14,22 @@ Font.register({
 })
 const LENGTH_OPTIONS = {
   summary: [
-    { label: '10%', payload: '0.1' },
-    { label: '20%', payload: '0.2' },
-    { label: '30%', payload: '0.3' },
+    { label: '10%', payload: 0.1 },
+    { label: '20%', payload: 0.2 },
+    { label: '30%', payload: 0.3 },
   ],
   extract: [
-    { label: '60%', payload: '0.6' },
-    { label: '70%', payload: '0.7' },
-    { label: '80%', payload: '0.8' },
+    { label: '60%', payload: 0.6 },
+    { label: '70%', payload: 0.7 },
+    { label: '80%', payload: 0.8 },
   ],
 }
 
 function getSelectedLengthPayload(currentMode, index) {
   const options = LENGTH_OPTIONS[currentMode] || LENGTH_OPTIONS.summary
   const safeIndex = Math.max(0, Math.min(Number(index) || 0, options.length - 1))
-  return options[safeIndex]?.payload || (currentMode === 'extract' ? '0.7' : '0.2')
+  const val = options[safeIndex]?.payload
+  return typeof val === 'number' ? val : (currentMode === 'extract' ? 0.7 : 0.2)
 }
 
 function getSelectedLengthLabel(currentMode, index) {

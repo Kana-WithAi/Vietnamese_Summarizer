@@ -481,7 +481,19 @@ export const subscriptionsApi = {
 }
 
 export const summarizeApi = {
-  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: true }),
+  text: (payload) => {
+    const normalizedPayload =
+      payload && typeof payload === 'object' && 'length_ratio' in payload
+        ? {
+            ...payload,
+            length_ratio:
+              typeof payload.length_ratio === 'number'
+                ? payload.length_ratio
+                : Number(payload.length_ratio),
+          }
+        : payload
+    return request('/summarize/text', { method: 'POST', body: normalizedPayload, auth: true })
+  },
   file: (payload) => requestBinary('/summarize/file', { method: 'POST', body: payload, auth: true }),
 }
 
