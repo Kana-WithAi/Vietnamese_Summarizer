@@ -1811,9 +1811,11 @@ function DashboardPage() {
                       {t('dashboard.feedbackModerationUi.userComment')}
                     </p>
                     {userComment ? (
-                      <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-wrap font-normal">
-                        {userComment}
-                      </p>
+                      <div className="max-h-36 overflow-y-auto pr-1.5 scrollbar-thin">
+                        <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-wrap font-normal break-words [overflow-wrap:anywhere]">
+                          {userComment}
+                        </p>
+                      </div>
                     ) : (
                       <p className="text-xs italic text-slate-500">
                         {t('dashboard.feedbackModerationUi.noComment')}

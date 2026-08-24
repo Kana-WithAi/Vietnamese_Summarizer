@@ -92,6 +92,7 @@ function FeedbackPublicPage() {
   const [error, setError] = useState('')
   const [ratingFilter, setRatingFilter] = useState('all')
   const [page, setPage] = useState(1)
+  const [selectedFeedbackModal, setSelectedFeedbackModal] = useState(null)
 
   useEffect(() => {
     let isMounted = true
@@ -134,6 +135,7 @@ function FeedbackPublicPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
+      {/* Header Banner */}
       <div className="rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-xl shadow-black/10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -153,6 +155,7 @@ function FeedbackPublicPage() {
         </div>
       </div>
 
+      {/* Filter Buttons */}
       <div className="rounded-3xl border border-surface-border bg-surface-raised p-4">
         <div className="flex flex-wrap gap-2">
           {['all', '5', '4', '3', '2', '1'].map((option) => (
@@ -174,6 +177,7 @@ function FeedbackPublicPage() {
         </div>
       </div>
 
+      {/* Review List */}
       {loading ? (
         <div className="rounded-3xl border border-surface-border bg-surface-raised p-8 text-center text-slate-300">
           {lang === 'vi' ? 'Đang tải đánh giá...' : 'Loading reviews...'}
@@ -202,47 +206,66 @@ function FeedbackPublicPage() {
                   ? item.criteria
                   : []
             const comment = item?.comment || item?.feedback || item?.message || ''
+            const isLongComment = comment.length > 130
 
             return (
-              <article key={item?.id || item?._id || `${item?.rating || 'review'}-${index}`} className="rounded-3xl border border-surface-border bg-surface-raised p-5 shadow-lg shadow-black/10">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{displayTargetType}</p>
-                    <h2 className="mt-2 text-lg font-semibold text-white">{getFeedbackAuthorName(item, lang)}</h2>
+              <article key={item?.id || item?._id || `${item?.rating || 'review'}-${index}`} className="flex flex-col justify-between rounded-3xl border border-surface-border bg-surface-raised p-5 shadow-lg shadow-black/10">
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{displayTargetType}</p>
+                      <h2 className="mt-2 text-lg font-semibold text-white">{getFeedbackAuthorName(item, lang)}</h2>
+                    </div>
+                    <StarRating value={rating} />
                   </div>
-                  <StarRating value={rating} />
-                </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {tags.length > 0 ? (
-                    tags.map((tag, tagIndex) => {
-                      const tagCode = typeof tag === 'string' ? tag : tag?.code || tag?.id || tag?.label || tag?.name || ''
-                      const translatedTag = tagCode ? t(`feedback.reasons.${tagCode}`) : ''
-                      const displayTag = translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
-                        ? translatedTag
-                        : typeof tag === 'string'
-                          ? tag
-                          : tag?.label || tag?.name || 'Tag'
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {tags.length > 0 ? (
+                      tags.map((tag, tagIndex) => {
+                        const tagCode = typeof tag === 'string' ? tag : tag?.code || tag?.id || tag?.label || tag?.name || ''
+                        const translatedTag = tagCode ? t(`feedback.reasons.${tagCode}`) : ''
+                        const displayTag = translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
+                          ? translatedTag
+                          : typeof tag === 'string'
+                            ? tag
+                            : tag?.label || tag?.name || 'Tag'
 
-                      return (
-                        <span key={`${tagCode || tagIndex}-${tagIndex}`} className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-300">
-                          {displayTag}
-                        </span>
-                      )
-                    })
-                  ) : (
-                    <span className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-400">
-                      {lang === 'vi' ? 'Không có tiêu chí' : 'No criteria'}
-                    </span>
+                        return (
+                          <span key={`${tagCode || tagIndex}-${tagIndex}`} className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-300">
+                            {displayTag}
+                          </span>
+                        )
+                      })
+                    ) : (
+                      <span className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-[11px] text-slate-400">
+                        {lang === 'vi' ? 'Không có tiêu chí' : 'No criteria'}
+                      </span>
+                    )}
+                  </div>
+
+                  {comment && (
+                    <div className="mt-4">
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300 line-clamp-3 break-words [overflow-wrap:anywhere]">
+                        {comment}
+                      </p>
+                      {isLongComment && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFeedbackModal(item)}
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-hover transition"
+                        >
+                          <span>{lang === 'vi' ? 'Xem thêm' : 'Read more'}</span>
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {comment && (
-                  <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-300">{comment}</p>
-                )}
-
                 {item?.created_at || item?.createdAt ? (
-                  <div className="mt-4 text-xs text-slate-500">
+                  <div className="mt-4 text-xs text-slate-500 pt-2 border-t border-surface-border/40">
                     {new Date(item.created_at || item.createdAt).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US', {
                       year: 'numeric',
                       month: 'short',
@@ -256,6 +279,7 @@ function FeedbackPublicPage() {
         </div>
       )}
 
+      {/* Pagination */}
       <div className="flex justify-center gap-3 pb-10">
         <button
           type="button"
@@ -276,6 +300,103 @@ function FeedbackPublicPage() {
           {lang === 'vi' ? 'Tiếp' : 'Next'}
         </button>
       </div>
+
+      {/* Review Detail Modal */}
+      {selectedFeedbackModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={() => setSelectedFeedbackModal(null)}
+        >
+          <div
+            className="relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-2xl shadow-black/50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-surface-border pb-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  {(() => {
+                    const rawType = String(selectedFeedbackModal?.target_type || 'summary').toLowerCase()
+                    const trans = t(`feedback.targetTypes.${rawType}`)
+                    return trans && trans !== `feedback.targetTypes.${rawType}` ? trans : rawType.toUpperCase()
+                  })()}
+                </p>
+                <h3 className="mt-1 text-xl font-semibold text-white">
+                  {getFeedbackAuthorName(selectedFeedbackModal, lang)}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFeedbackModal(null)}
+                className="rounded-full p-2 text-slate-400 hover:bg-surface-elevated hover:text-white transition"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Rating & Date */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <StarRating value={Number(selectedFeedbackModal?.rating ?? selectedFeedbackModal?.score ?? 0)} />
+              {selectedFeedbackModal?.created_at || selectedFeedbackModal?.createdAt ? (
+                <span className="text-xs text-slate-500">
+                  {new Date(selectedFeedbackModal.created_at || selectedFeedbackModal.createdAt).toLocaleDateString(
+                    lang === 'vi' ? 'vi-VN' : 'en-US',
+                    { year: 'numeric', month: 'short', day: 'numeric' },
+                  )}
+                </span>
+              ) : null}
+            </div>
+
+            {/* Criteria Tags */}
+            {(() => {
+              const modalTags = Array.isArray(selectedFeedbackModal?.tags)
+                ? selectedFeedbackModal.tags
+                : selectedFeedbackModal?.tag
+                  ? [selectedFeedbackModal.tag]
+                  : Array.isArray(selectedFeedbackModal?.criteria)
+                    ? selectedFeedbackModal.criteria
+                    : []
+              if (!modalTags.length) return null
+              return (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {modalTags.map((tag, tagIdx) => {
+                    const tagCode = typeof tag === 'string' ? tag : tag?.code || tag?.id || tag?.label || tag?.name || ''
+                    const translatedTag = tagCode ? t(`feedback.reasons.${tagCode}`) : ''
+                    const displayTag = translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
+                      ? translatedTag
+                      : typeof tag === 'string' ? tag : tag?.label || tag?.name || 'Tag'
+                    return (
+                      <span key={tagIdx} className="rounded-full border border-surface-border bg-surface-base px-2.5 py-1 text-xs text-slate-300">
+                        {displayTag}
+                      </span>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
+            {/* Full Comment */}
+            <div className="mt-4 flex-1 overflow-y-auto pr-1 scrollbar-thin">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200 break-words [overflow-wrap:anywhere]">
+                {selectedFeedbackModal?.comment || selectedFeedbackModal?.feedback || selectedFeedbackModal?.message || ''}
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="mt-6 flex justify-end border-t border-surface-border pt-4">
+              <button
+                type="button"
+                onClick={() => setSelectedFeedbackModal(null)}
+                className="rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-surface-base hover:bg-accent-hover transition shadow-lg shadow-accent/20"
+              >
+                {lang === 'vi' ? 'Đóng' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
