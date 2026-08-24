@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
 import { authApi, paymentsApi, sessionsApi } from '../utils/api'
@@ -658,12 +658,12 @@ function ProfilePage() {
                   <div className="rounded-3xl bg-slate-900/80 p-5 text-sm text-slate-300">
                     <p className="font-semibold text-white">{t('profile.upgradePlan')}</p>
                     <p className="mt-2 text-slate-400">{lang === 'vi' ? 'Mở khóa phân tích AI và hỗ trợ ưu tiên.' : 'Unlock AI usage insights and priority support.'}</p>
-                    <button
-                      type="button"
-                      className="mt-4 w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
+                    <Link
+                      to="/pricing"
+                      className="mt-4 block w-full text-center rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover shadow-lg shadow-accent/20"
                     >
                       {t('profile.upgradePlan')}
-                    </button>
+                    </Link>
                   </div>
                 </aside>
               </div>
