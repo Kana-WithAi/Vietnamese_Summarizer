@@ -626,8 +626,27 @@ export const collectionsApi = {
 export const adminApi = {
   users: {
     list: (params = {}) => request(`/admin/users${buildQuery(params)}`, { auth: true }),
-    ban: (id, payload = {}) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload, auth: true }),
-    unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }),
+    ban: (id, payload = {}) => {
+      const reason =
+        typeof payload === 'string'
+          ? payload
+          : payload?.reason || payload?.ban_reason || payload?.banReason || ''
+      const body = {
+        reason,
+        ban_reason: reason,
+        ...(typeof payload === 'object' ? payload : {}),
+      }
+      return request(`/admin/users/${id}/ban`, { method: 'POST', body, auth: true })
+    },
+    unban: (id) =>
+      request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }).catch((err) => {
+        if (err?.status === 404 || err?.status === 405) {
+          return request(`/admin/users/${id}/unban`, { method: 'PUT', auth: true }).catch(() => {
+            return request(`/admin/users/${id}/ban`, { method: 'DELETE', auth: true })
+          })
+        }
+        throw err
+      }),
   },
   subscriptions: {
     list: (force = false) => cachedRequest('/admin/subscriptions', { auth: true, force }, 3 * 60 * 1000),

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
 import { authApi, paymentsApi, sessionsApi } from '../utils/api'
@@ -13,6 +14,16 @@ const initialProfile = {
 function ProfilePage() {
   const { t, lang } = useLanguage()
   const { user, refreshUser } = useAuth()
+  const hasRefreshedRef = useRef(false)
+  const [searchParams] = useSearchParams()
+  const paymentStatus = searchParams.get('status')
+  const paymentCode = searchParams.get('code')
+  const orderCode = searchParams.get('orderCode') || searchParams.get('order_code')
+  const isPaymentSuccess =
+    paymentStatus?.toUpperCase() === 'PAID' ||
+    paymentCode === '00' ||
+    searchParams.get('payment') === 'success'
+
   const [profile, setProfile] = useState(initialProfile)
   const [activeTab, setActiveTab] = useState('profile')
   const [formState, setFormState] = useState({
@@ -36,6 +47,14 @@ function ProfilePage() {
   const [transactionStatusFilter, setTransactionStatusFilter] = useState('')
   const [cancellingOrderCode, setCancellingOrderCode] = useState('')
   const [cancelTxMessage, setCancelTxMessage] = useState('')
+
+  useEffect(() => {
+    // Chỉ gọi refresh nếu người dùng chuyển hướng từ luồng bên ngoài và chưa được refresh
+    if ((isPaymentSuccess || orderCode) && !hasRefreshedRef.current) {
+      hasRefreshedRef.current = true
+      refreshUser(true)
+    }
+  }, [isPaymentSuccess, orderCode, refreshUser])
 
   useEffect(() => {
     if (user) {
@@ -486,6 +505,28 @@ function ProfilePage() {
 
   return (
     <div className="space-y-6">
+      {isPaymentSuccess && (
+        <section className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-sm shadow-black/10">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-500/20 p-2 text-emerald-400">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-emerald-300">
+                {lang === 'vi' ? 'Thanh toán thành công!' : 'Payment Successful!'}
+              </h3>
+              <p className="mt-1 text-sm text-emerald-200/80">
+                {lang === 'vi'
+                  ? 'Gói dịch vụ và thông tin tài khoản của bạn đã được cập nhật thành công.'
+                  : 'Your subscription plan and account information have been updated successfully.'}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-lg shadow-black/20">
         <div className="grid gap-6 p-4 sm:p-6 xl:grid-cols-[270px_minmax(0,1fr)]">
           <aside className="rounded-3xl border border-surface-border bg-surface-base/70 p-3">

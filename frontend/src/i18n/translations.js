@@ -848,6 +848,13 @@ export const translations = {
       topRegions: 'Khu vực hàng đầu',
       switchToUserPage: 'Chuyển sang trang người dùng',
       subscriptionsTitle: 'Quản lý gói đăng ký',
+      userStatusOptions: {
+        all: 'Tất cả trạng thái',
+        active: 'Hoạt động',
+        banned: 'Đã cấm',
+        pending: 'Chờ duyệt',
+        suspended: 'Tạm khóa',
+      },
       feedbackTemplates: {
         select: 'Chọn mẫu phản hồi',
         thankYou: 'Cảm ơn',

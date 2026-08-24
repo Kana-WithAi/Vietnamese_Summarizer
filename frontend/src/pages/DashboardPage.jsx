@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { adminApi, feedbacksApi } from '../utils/api'
 
 const navItems = [
@@ -704,6 +705,7 @@ function getDefaultDateRange() {
 
 function DashboardPage() {
   const { t, lang } = useLanguage()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [activeNav, setActiveNav] = useState('analyticsReports')
 
@@ -719,6 +721,13 @@ function DashboardPage() {
   const [userFiltersDraft, setUserFiltersDraft] = useState({ search: '', email: '', name: '', full_name: '', role: '', status: '' })
   const [userFilters, setUserFilters] = useState({ page: 1, limit: 20, search: '', email: '', name: '', full_name: '', role: '', status: '' })
   const [usersTotalPages, setUsersTotalPages] = useState(0)
+  const [banUserTarget, setBanUserTarget] = useState(null)
+  const [banReasonInput, setBanReasonInput] = useState('')
+  const [banActionLoading, setBanActionLoading] = useState(false)
+  const [banActionError, setBanActionError] = useState('')
+  const [unbanUserTarget, setUnbanUserTarget] = useState(null)
+  const [unbanActionLoading, setUnbanActionLoading] = useState(false)
+  const [unbanActionError, setUnbanActionError] = useState('')
 
   const [plansLoading, setPlansLoading] = useState(false)
   const [plansError, setPlansError] = useState('')
@@ -861,28 +870,86 @@ function DashboardPage() {
     }
   }
 
-  const handleToggleBan = async (targetUser) => {
-    const userId = targetUser?.id || targetUser?._id || targetUser?.user_id
-    if (!userId) return
-    if (user?.id && String(user.id) === String(userId)) {
-      alert(lang === 'vi' ? 'Admin không thể tự vô hiệu hóa tài khoản của chính mình.' : 'Administrators cannot disable their own account.')
+  const getUserId = (u) => {
+    return u?.id || u?.user_id || u?.userId || u?.ID || u?._id || ''
+  }
+
+  const isUserBanned = (u) => {
+    if (!u) return false
+    if (u.is_banned === true || u.isBanned === true || u.banned === true) return true
+    const status = String(u.status || '').toLowerCase()
+    if (status === 'banned' || status === 'suspended' || status === 'disabled') return true
+    if (u.is_active === false || u.isActive === false) return true
+    return Boolean(u.ban_reason || u.banReason || u.banned_at || u.bannedAt)
+  }
+
+  const handleOpenBanModal = (targetUser) => {
+    const targetId = getUserId(targetUser)
+    if (!targetId) return
+    const currentUserId = getUserId(user)
+    if (currentUserId && String(currentUserId) === String(targetId)) {
+      alert(
+        lang === 'vi'
+          ? 'Admin không thể tự vô hiệu hóa tài khoản của chính mình.'
+          : 'Administrators cannot disable their own account.',
+      )
       return
     }
-    const status = String(targetUser?.status || '').toLowerCase()
-    const isBanned = status === 'banned' || status === 'suspended'
+    setBanUserTarget(targetUser)
+    setBanReasonInput('')
+    setBanActionError('')
+  }
+
+  const handleOpenUnbanModal = (targetUser) => {
+    const targetId = getUserId(targetUser)
+    if (!targetId) return
+    setUnbanUserTarget(targetUser)
+    setUnbanActionError('')
+  }
+
+  const handleConfirmBan = async () => {
+    if (!banUserTarget) return
+    const targetId = getUserId(banUserTarget)
+    if (!targetId) return
+
+    setBanActionLoading(true)
+    setBanActionError('')
+
+    const reason =
+      banReasonInput.trim().slice(0, 500) ||
+      (lang === 'vi' ? 'Vô hiệu hóa bởi Quản trị viên' : 'Disabled by Admin')
     try {
-      if (isBanned) {
-        await adminApi.users.unban(userId)
-      } else {
-        const promptMsg = lang === 'vi' ? 'Lý do vô hiệu hóa (tối đa 500 ký tự):' : 'Ban reason (max 500 characters):'
-        const rawReason = window.prompt(promptMsg)
-        if (rawReason === null) return
-        const reason = (rawReason || '').trim().slice(0, 500) || (lang === 'vi' ? 'Vô hiệu hóa bởi Quản trị viên' : 'Disabled by Admin')
-        await adminApi.users.ban(userId, { reason })
-      }
+      await adminApi.users.ban(targetId, { reason, ban_reason: reason })
+      setBanUserTarget(null)
+      setBanReasonInput('')
       await loadUsers(userFilters)
     } catch (error) {
-      alert(error?.message || (lang === 'vi' ? 'Thao tác thất bại.' : 'Action failed.'))
+      setBanActionError(
+        error?.message || (lang === 'vi' ? 'Không thể cấm người dùng.' : 'Unable to ban user.'),
+      )
+    } finally {
+      setBanActionLoading(false)
+    }
+  }
+
+  const handleConfirmUnban = async () => {
+    if (!unbanUserTarget) return
+    const targetId = getUserId(unbanUserTarget)
+    if (!targetId) return
+
+    setUnbanActionLoading(true)
+    setUnbanActionError('')
+
+    try {
+      await adminApi.users.unban(targetId)
+      setUnbanUserTarget(null)
+      await loadUsers(userFilters)
+    } catch (error) {
+      setUnbanActionError(
+        error?.message || (lang === 'vi' ? 'Không thể bỏ cấm người dùng.' : 'Unable to unban user.'),
+      )
+    } finally {
+      setUnbanActionLoading(false)
     }
   }
 
@@ -1402,25 +1469,30 @@ function DashboardPage() {
                 <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
               ) : (
                 users.map((targetUser, index) => {
-                  const status = String(targetUser?.status || '').toLowerCase()
-                  const isBanned = status === 'banned' || status === 'suspended'
-                  const isPending = status === 'pending'
-                  const banReason = targetUser?.ban_reason || targetUser?.banReason || targetUser?.reason || '-'
+                  const targetId = getUserId(targetUser)
+                  const isBanned = isUserBanned(targetUser)
+                  const isPending = String(targetUser?.status || '').toLowerCase() === 'pending'
+                  const banReason =
+                    targetUser?.ban_reason ||
+                    targetUser?.banReason ||
+                    targetUser?.reason ||
+                    (isBanned ? (lang === 'vi' ? 'Đã bị khóa' : 'Banned') : '-')
                   const statusLabel = isBanned
                     ? t('dashboard.userStatusOptions.banned')
                     : isPending
                       ? t('dashboard.userStatusOptions.pending')
-                      : status === 'active'
-                        ? t('dashboard.userStatusOptions.active')
-                        : targetUser?.status || '-'
+                      : t('dashboard.userStatusOptions.active')
                   const statusBadgeClass = isBanned
                     ? 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
                     : isPending
                       ? 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
                       : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
 
+                  const currentUserId = getUserId(user)
+                  const isSelf = currentUserId && String(currentUserId) === String(targetId)
+
                   return (
-                    <div key={targetUser?.id || targetUser?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
+                    <div key={targetId || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
                       <span className="truncate text-white">{targetUser?.full_name || targetUser?.fullName || targetUser?.name || '-'}</span>
                       <span className="truncate text-slate-300">{targetUser?.email || '-'}</span>
                       <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${statusBadgeClass}`}>
@@ -1429,13 +1501,23 @@ function DashboardPage() {
                       <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
                         {banReason}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleBan(targetUser)}
-                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${isBanned ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'}`}
-                      >
-                        {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
-                      </button>
+                      {isSelf ? (
+                        <span className="text-xs text-slate-500 italic">
+                          {lang === 'vi' ? 'Tài khoản của bạn' : 'Your account'}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => (isBanned ? handleOpenUnbanModal(targetUser) : handleOpenBanModal(targetUser))}
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                            isBanned
+                              ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                              : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                          }`}
+                        >
+                          {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
+                        </button>
+                      )}
                     </div>
                   )
                 })
@@ -1935,6 +2017,131 @@ function DashboardPage() {
                 className="rounded-lg bg-rose-500/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {t('dashboard.feedbackModerationUi.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ban User Modal */}
+      {banUserTarget && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-2xl shadow-black/50 space-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-rose-400 font-bold">
+                {lang === 'vi' ? 'Khóa tài khoản' : 'Ban Account'}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-white">
+                {lang === 'vi' ? 'Xác nhận cấm người dùng' : 'Confirm User Ban'}
+              </h3>
+              <p className="mt-2 text-sm text-slate-300">
+                {lang === 'vi'
+                  ? `Bạn đang thực hiện khóa tài khoản của ${banUserTarget.full_name || banUserTarget.email || 'người dùng này'}. Người dùng sẽ không thể đăng nhập hoặc sử dụng dịch vụ.`
+                  : `You are about to ban ${banUserTarget.full_name || banUserTarget.email || 'this user'}. They will not be able to log in or use the service.`}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400">
+                {lang === 'vi' ? 'Lý do vô hiệu hóa (tối đa 500 ký tự)' : 'Ban Reason (max 500 chars)'}
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {[
+                  lang === 'vi' ? 'Vi phạm điều khoản dịch vụ' : 'Terms of service violation',
+                  lang === 'vi' ? 'Spam hoặc lạm dụng hệ thống' : 'Spam or system abuse',
+                  lang === 'vi' ? 'Hành vi đáng ngờ' : 'Suspicious activity',
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setBanReasonInput(preset)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2.5 py-1 text-xs text-slate-300 hover:border-accent hover:text-white transition"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={banReasonInput}
+                onChange={(e) => setBanReasonInput(e.target.value.slice(0, 500))}
+                placeholder={lang === 'vi' ? 'Nhập lý do khóa tài khoản...' : 'Enter ban reason...'}
+                rows={3}
+                className="w-full rounded-2xl border border-surface-border bg-surface-base p-3 text-sm text-slate-200 outline-none transition focus:border-rose-500"
+              />
+            </div>
+
+            {banActionError && (
+              <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                {banActionError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setBanUserTarget(null)}
+                disabled={banActionLoading}
+                className="rounded-xl border border-surface-border px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-surface-base/60 disabled:opacity-50"
+              >
+                {lang === 'vi' ? 'Hủy bỏ' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBan}
+                disabled={banActionLoading}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:opacity-50 shadow-lg shadow-rose-600/20"
+              >
+                {banActionLoading
+                  ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                  : (lang === 'vi' ? 'Xác nhận cấm' : 'Confirm Ban')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unban User Modal */}
+      {unbanUserTarget && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-2xl shadow-black/50 space-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-emerald-400 font-bold">
+                {lang === 'vi' ? 'Mở khóa tài khoản' : 'Unban Account'}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-white">
+                {lang === 'vi' ? 'Xác nhận bỏ cấm người dùng' : 'Confirm User Unban'}
+              </h3>
+              <p className="mt-2 text-sm text-slate-300">
+                {lang === 'vi'
+                  ? `Bạn có chắc chắn muốn mở lại quyền truy cập cho ${unbanUserTarget.full_name || unbanUserTarget.email || 'tài khoản này'}?`
+                  : `Are you sure you want to restore access for ${unbanUserTarget.full_name || unbanUserTarget.email || 'this account'}?`}
+              </p>
+            </div>
+
+            {unbanActionError && (
+              <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                {unbanActionError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setUnbanUserTarget(null)}
+                disabled={unbanActionLoading}
+                className="rounded-xl border border-surface-border px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-surface-base/60 disabled:opacity-50"
+              >
+                {lang === 'vi' ? 'Hủy bỏ' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmUnban}
+                disabled={unbanActionLoading}
+                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50 shadow-lg shadow-emerald-600/20"
+              >
+                {unbanActionLoading
+                  ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                  : (lang === 'vi' ? 'Xác nhận mở khóa' : 'Confirm Unban')}
               </button>
             </div>
           </div>

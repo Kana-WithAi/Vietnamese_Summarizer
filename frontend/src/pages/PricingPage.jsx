@@ -141,7 +141,7 @@ function PricingPage() {
       const fallbackBaseUrl =
         import.meta.env.VITE_PAYMENT_PUBLIC_BASE_URL ||
         (origin.includes('localhost') ? 'https://datn.yviand.com' : origin)
-      const returnUrl = import.meta.env.VITE_PAYMENT_RETURN_URL || `${fallbackBaseUrl}/payments/status`
+      const returnUrl = import.meta.env.VITE_PAYMENT_RETURN_URL || `${fallbackBaseUrl}/profile`
       const cancelUrl = import.meta.env.VITE_PAYMENT_CANCEL_URL || `${fallbackBaseUrl}/payments/cancel`
       const ensureHttp = (url) => (/^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/+/, '')}`)
 
@@ -241,6 +241,7 @@ function PricingPage() {
     try {
       await paymentsApi.cancel(paymentModal.orderCode)
       closePaymentModal()
+      navigate('/payments/cancel')
     } catch (error) {
       setCancelModalError(
         error?.message ||
@@ -250,6 +251,66 @@ function PricingPage() {
       setCancellingPayment(false)
     }
   }
+
+  useEffect(() => {
+    if (!paymentModal.open || !paymentModal.orderCode) return
+
+    let isMounted = true
+    let pollTimer = null
+
+    const checkStatus = async () => {
+      try {
+        const response = await paymentsApi.status(paymentModal.orderCode)
+        const payload = response?.data || response || {}
+        const data = payload?.data || payload
+        const status = String(
+          data?.status || data?.payment_status || data?.state || payload?.status || '',
+        ).toLowerCase()
+
+        const isPaid =
+          status === 'paid' ||
+          status === 'completed' ||
+          status === 'success' ||
+          data?.is_paid === true ||
+          data?.isPaid === true ||
+          payload?.is_paid === true
+
+        const isCancelled =
+          status === 'cancelled' ||
+          status === 'canceled' ||
+          data?.is_cancelled === true ||
+          payload?.is_cancelled === true
+
+        if (isPaid) {
+          if (!isMounted) return
+          await refreshUser(true)
+          closePaymentModal()
+          navigate(`/profile?status=PAID&orderCode=${paymentModal.orderCode}&payment=success`)
+          return
+        }
+
+        if (isCancelled) {
+          if (!isMounted) return
+          closePaymentModal()
+          navigate('/payments/cancel')
+          return
+        }
+      } catch {
+        // Ignore temporary network/polling errors
+      }
+
+      if (isMounted) {
+        pollTimer = setTimeout(checkStatus, 2000)
+      }
+    }
+
+    pollTimer = setTimeout(checkStatus, 2000)
+
+    return () => {
+      isMounted = false
+      if (pollTimer) clearTimeout(pollTimer)
+    }
+  }, [paymentModal.open, paymentModal.orderCode, navigate, refreshUser])
 
   return (
     <div className="space-y-8">
