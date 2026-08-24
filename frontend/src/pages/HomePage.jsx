@@ -743,7 +743,7 @@ function HomePage() {
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
-        formData.append('length_type', getSelectedLengthPayload(mode, lengthIndex))
+        formData.append('length_ratio', getSelectedLengthPayload(mode, lengthIndex))
         if (selectedCollectionId) {
           formData.append('collection_id', selectedCollectionId)
         }
@@ -823,7 +823,7 @@ function HomePage() {
       const textPayload = {
         text: inputText,
         do_summarize: mode === 'summary',
-        length_type: selectedSummaryLength,
+        length_ratio: selectedSummaryLength,
       }
       if (selectedCollectionId) {
         textPayload.collection_id = selectedCollectionId
