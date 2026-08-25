@@ -173,17 +173,33 @@ function extractErrorDetails(data) {
   let message = ''
 
   if (typeof data === 'string') {
-    message = data
+    const trimmed = data.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        return extractErrorDetails(parsed)
+      } catch {
+        message = trimmed
+      }
+    } else {
+      message = trimmed
+    }
   } else if (data && typeof data === 'object') {
     if (data.error && typeof data.error === 'object') {
-      code = String(data.error.code || '').trim().toUpperCase()
-      message = String(data.error.message || '').trim()
+      code = String(data.error.code || data.error.error_code || data.error.errorCode || '').trim().toUpperCase()
+      message = String(data.error.message || data.error.msg || data.error.detail || '').trim()
     } else if (typeof data.error === 'string') {
       message = data.error.trim()
     }
 
-    if (!code && data.code) {
+    if (!code && data.code && typeof data.code === 'string') {
       code = String(data.code).trim().toUpperCase()
+    }
+    if (!code && data.error_code) {
+      code = String(data.error_code).trim().toUpperCase()
+    }
+    if (!code && data.errorCode) {
+      code = String(data.errorCode).trim().toUpperCase()
     }
     if (!message && data.message) {
       message = String(data.message).trim()
@@ -193,6 +209,20 @@ function extractErrorDetails(data) {
     }
     if (!message && data.msg) {
       message = String(data.msg).trim()
+    }
+    if (!message && data.errorMessage) {
+      message = String(data.errorMessage).trim()
+    }
+    if (!message && Array.isArray(data.errors) && data.errors.length > 0) {
+      message = typeof data.errors[0] === 'string' ? data.errors[0] : JSON.stringify(data.errors[0])
+    }
+  }
+
+  // If code is not set, but message looks like an uppercase or snake_case code (e.g. "EMAIL_EXISTS", "invalid_password")
+  if (!code && message && /^[A-Za-z0-9_-]+$/.test(message) && message.length < 50) {
+    const candidateCode = message.toUpperCase().replace(/-/g, '_')
+    if (API_ERROR_MESSAGES[candidateCode]) {
+      code = candidateCode
     }
   }
 
@@ -211,6 +241,7 @@ function isLikelyTechnicalBackendMessage(value) {
     'traceback',
     'sql:',
     'database error',
+    'sqlstate',
     'internal server error',
     'runtime error',
     'exception:',
@@ -227,14 +258,24 @@ function isLikelyTechnicalBackendMessage(value) {
   return technicalMarkers.some((marker) => normalized.includes(marker))
 }
 
-export function getLocalizedErrorMessage(data, defaultFallback) {
+export function getLocalizedErrorMessage(data, defaultFallback, status) {
   const lang = getPreferredLanguage()
   const { code, message } = extractErrorDetails(data)
 
+  // 1. Check exact mapped error codes in API_ERROR_MESSAGES
   if (code && API_ERROR_MESSAGES[code]) {
     return API_ERROR_MESSAGES[code][lang] || API_ERROR_MESSAGES[code].en
   }
 
+  // 2. Check if message itself maps to a known code in API_ERROR_MESSAGES
+  if (message) {
+    const normalizedKey = message.trim().toUpperCase().replace(/[\s-]+/g, '_')
+    if (API_ERROR_MESSAGES[normalizedKey]) {
+      return API_ERROR_MESSAGES[normalizedKey][lang] || API_ERROR_MESSAGES[normalizedKey].en
+    }
+  }
+
+  // 3. Check common English backend error phrases
   const lower = (message || '').toLowerCase()
   const commonTranslations = {
     'valid authentication token is required': {
@@ -249,9 +290,13 @@ export function getLocalizedErrorMessage(data, defaultFallback) {
       en: 'Please log in again to continue.',
       vi: 'Vui lòng đăng nhập lại để tiếp tục.',
     },
+    'token expired': {
+      en: 'Your session has expired. Please log in again.',
+      vi: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+    },
     'unauthorized': {
-      en: 'Unauthorized request.',
-      vi: 'Yêu cầu không được phép.',
+      en: 'Unauthorized request. Please log in.',
+      vi: 'Yêu cầu không được phép. Vui lòng đăng nhập.',
     },
     'forbidden': {
       en: 'Access forbidden.',
@@ -265,9 +310,45 @@ export function getLocalizedErrorMessage(data, defaultFallback) {
       en: 'Network error. Please check your connection and try again.',
       vi: 'Lỗi mạng. Vui lòng kiểm tra kết nối và thử lại.',
     },
+    'record not found': {
+      en: 'The requested record was not found.',
+      vi: 'Không tìm thấy dữ liệu yêu cầu.',
+    },
     'not found': {
       en: 'The requested resource was not found.',
       vi: 'Không tìm thấy tài nguyên yêu cầu.',
+    },
+    'already exists': {
+      en: 'This item already exists.',
+      vi: 'Mục này đã tồn tại.',
+    },
+    'invalid credentials': {
+      en: 'Invalid email or password.',
+      vi: 'Email hoặc mật khẩu không chính xác.',
+    },
+    'incorrect password': {
+      en: 'Current password is incorrect.',
+      vi: 'Mật khẩu hiện tại không chính xác.',
+    },
+    'invalid password': {
+      en: 'Current password is incorrect.',
+      vi: 'Mật khẩu không chính xác.',
+    },
+    'email already exists': {
+      en: 'This email is already registered.',
+      vi: 'Địa chỉ email này đã được sử dụng.',
+    },
+    'too many requests': {
+      en: 'Too many requests. Please wait a moment and try again.',
+      vi: 'Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát.',
+    },
+    'rate limit': {
+      en: 'Rate limit exceeded. Please wait a moment.',
+      vi: 'Vượt quá giới hạn lượt gọi. Vui lòng đợi trong giây lát.',
+    },
+    'bad request': {
+      en: 'Invalid request data.',
+      vi: 'Dữ liệu yêu cầu không hợp lệ.',
     },
   }
 
@@ -277,17 +358,78 @@ export function getLocalizedErrorMessage(data, defaultFallback) {
     }
   }
 
+  // 4. If backend provided a clear user-facing message (not a technical crash dump), return it!
+  if (message && !isLikelyTechnicalBackendMessage(message)) {
+    return message
+  }
+
+  // 5. If a custom fallback is specified, use it
   if (defaultFallback) {
     return defaultFallback
   }
 
+  // 6. HTTP Status Code based fallback
+  if (status) {
+    const statusMessages = {
+      400: {
+        vi: 'Dữ liệu yêu cầu không hợp lệ. Vui lòng kiểm tra lại.',
+        en: 'Invalid request data. Please verify your information.',
+      },
+      401: {
+        vi: 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.',
+        en: 'Session expired or invalid. Please log in again.',
+      },
+      403: {
+        vi: 'Bạn không có quyền thực hiện thao tác này.',
+        en: 'You do not have permission to perform this action.',
+      },
+      404: {
+        vi: 'Không tìm thấy dữ liệu yêu cầu hoặc mục này đã bị xóa.',
+        en: 'The requested resource was not found or has been removed.',
+      },
+      409: {
+        vi: 'Dữ liệu đã tồn tại hoặc xảy ra xung đột.',
+        en: 'Resource conflict or data already exists.',
+      },
+      422: {
+        vi: 'Dữ liệu đầu vào không hợp lệ.',
+        en: 'Validation error. Please check your input.',
+      },
+      429: {
+        vi: 'Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát.',
+        en: 'Too many requests. Please wait a moment and try again.',
+      },
+      500: {
+        vi: 'Hệ thống máy chủ gặp sự cố. Vui lòng thử lại sau.',
+        en: 'Internal server error. Please try again later.',
+      },
+      502: {
+        vi: 'Không thể kết nối đến máy chủ phía sau (Bad Gateway).',
+        en: 'Bad Gateway. The service is temporarily unavailable.',
+      },
+      503: {
+        vi: 'Dịch vụ tạm thời bận hoặc bảo trì. Vui lòng thử lại sau.',
+        en: 'Service Unavailable. Please try again shortly.',
+      },
+      504: {
+        vi: 'Hết thời gian phản hồi từ máy chủ (Gateway Timeout).',
+        en: 'Gateway Timeout. Please try again.',
+      },
+    }
+
+    if (statusMessages[status]) {
+      return statusMessages[status][lang] || statusMessages[status].en
+    }
+  }
+
+  // 7. Generic fallback
   return lang === 'vi'
     ? 'Yêu cầu không thể hoàn thành. Vui lòng thử lại.'
     : 'The request could not be completed. Please try again.'
 }
 
-function getErrorMessage(data) {
-  return getLocalizedErrorMessage(data)
+function getErrorMessage(data, status) {
+  return getLocalizedErrorMessage(data, null, status)
 }
 
 async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
@@ -323,7 +465,7 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
 
   if (!response.ok) {
     const errorDetails = extractErrorDetails(data)
-    const localizedMessage = getLocalizedErrorMessage(data)
+    const localizedMessage = getLocalizedErrorMessage(data, null, response.status)
     const error = new Error(localizedMessage)
     error.status = response.status
     error.code = errorDetails.code
@@ -368,7 +510,7 @@ async function requestBinary(path, { method = 'GET', body, auth = false, headers
     }
 
     const errorDetails = extractErrorDetails(data)
-    const localizedMessage = getLocalizedErrorMessage(data)
+    const localizedMessage = getLocalizedErrorMessage(data, null, response.status)
     const error = new Error(localizedMessage)
     error.status = response.status
     error.code = errorDetails.code
@@ -592,6 +734,16 @@ export const historyApi = {
   removeAll: async () => {
     const res = await request('/history/all', { method: 'DELETE', auth: true })
     clearApiCache('/history')
+    return res
+  },
+  moveToCollection: async (id, collectionId) => {
+    const res = await request(`/history/${id}/move`, {
+      method: 'PUT',
+      body: { collection_id: collectionId ? collectionId : null },
+      auth: true,
+    })
+    clearApiCache('/history')
+    clearApiCache('/collections')
     return res
   },
   removeById: async (id) => {
