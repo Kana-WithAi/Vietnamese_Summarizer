@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
-import { collectionsApi, feedbacksApi, historyApi, ocrApi, subscriptionsApi, summarizeApi } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import { collectionsApi, feedbacksApi, historyApi, ocrApi, summarizeApi } from '../utils/api'
 import OcrOutputBox from '../components/OcrOutputBox'
 import { getFileDimensions } from '../utils/fileDimensions'
 import { countTextStats } from '../utils/textStats'
@@ -11,8 +12,32 @@ Font.register({
   family: 'Noto Sans Vietnamese',
   src: 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf',
 })
+const LENGTH_OPTIONS = {
+  summary: [
+    { label: '10%', payload: 0.1 },
+    { label: '20%', payload: 0.2 },
+    { label: '30%', payload: 0.3 },
+  ],
+  extract: [
+    { label: '60%', payload: 0.6 },
+    { label: '70%', payload: 0.7 },
+    { label: '80%', payload: 0.8 },
+  ],
+}
 
-const LENGTH_MAP = { 0: 'short', 1: 'medium', 2: 'long' }
+function getSelectedLengthPayload(currentMode, index) {
+  const options = LENGTH_OPTIONS[currentMode] || LENGTH_OPTIONS.summary
+  const safeIndex = Math.max(0, Math.min(Number(index) || 0, options.length - 1))
+  const val = options[safeIndex]?.payload
+  return typeof val === 'number' ? val : (currentMode === 'extract' ? 0.7 : 0.2)
+}
+
+function getSelectedLengthLabel(currentMode, index) {
+  const options = LENGTH_OPTIONS[currentMode] || LENGTH_OPTIONS.summary
+  const safeIndex = Math.max(0, Math.min(Number(index) || 0, options.length - 1))
+  return options[safeIndex]?.label || (currentMode === 'extract' ? '70%' : '20%')
+}
+
 const DISLIKE_REASONS = ['missing_info', 'clunky_sentences', 'spelling_grammar', 'loss_of_context', 'other']
 const SUMMARY_COLLECTION_STORAGE_KEY = 'vietnamese-summarizer-collections'
 const SUMMARY_COLLECTION_COLOR_STORAGE_KEY = 'vietnamese-summarizer-collection-colors'
@@ -81,95 +106,42 @@ function extractSummaryIdFromHistoryResponse(response) {
 
 function getSummarizeErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const data = error?.data
-  const dataObject = data && typeof data === 'object' ? data : {}
-  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
-  const backendMessage = String(dataObject?.message || '')
-  const rawText = String(
-    dataObject?.message ||
-    dataObject?.error ||
-    (typeof data === 'string' ? data : '') ||
-    error?.message ||
-    '',
-  ).toLowerCase()
-
-  const looksLikeHtmlError = rawText.includes('<html') || rawText.includes('<!doctype')
-
-  const hasUsableBackendMessage =
-    backendMessage.trim() &&
-    backendMessage.length < 300 &&
-    !backendMessage.toLowerCase().includes('<html') &&
-    !backendMessage.toLowerCase().includes('<!doctype')
-
-  const looksLikeLimitError =
-    code === 'TEXT_TOO_LONG' ||
-    code === 'CHAR_LIMIT_EXCEEDED' ||
-    code === 'WORD_LIMIT_EXCEEDED' ||
-    code === 'INPUT_LIMIT_EXCEEDED' ||
-    status === 413 ||
-    status === 422 ||
-    rawText.includes('character limit') ||
-    rawText.includes('word limit') ||
-    rawText.includes('too long') ||
-    rawText.includes('limit')
-
-  const looksLikeEmptyTextError =
-    code === 'EMPTY_TEXT' ||
-    (status === 400 && (rawText.includes('empty') || rawText.includes('whitespace')))
+  const code = String(error?.code || '').toUpperCase()
 
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
   }
 
-  if (looksLikeEmptyTextError) {
+  if (code === 'TEXT_TOO_SHORT') {
     return lang === 'vi'
-      ? 'Vui lòng nhập nội dung trước khi tóm tắt.'
-      : 'Please enter text before summarizing.'
+      ? 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.'
+      : 'Text is too short. A minimum of 10 characters is required.'
+  }
+
+  if (code === 'TEXT_TOO_LONG' || code === 'CHAR_LIMIT_EXCEEDED' || code === 'WORD_LIMIT_EXCEEDED') {
+    return lang === 'vi'
+      ? 'Văn bản vượt quá hạn mức từ cho phép của gói cước hiện tại. Hãy rút ngắn nội dung hoặc nâng cấp gói.'
+      : 'Your text exceeds the word limit for your current plan. Shorten it or upgrade your plan.'
   }
 
   if (code === 'DAILY_WORD_LIMIT_EXCEEDED' || status === 429) {
-    if (hasUsableBackendMessage) return backendMessage
     return lang === 'vi'
-      ? 'Bạn đã dùng hết giới hạn từ hôm nay. Giới hạn sẽ reset lúc 00:00 ngày mai.'
+      ? 'Bạn đã dùng hết hạn mức từ tóm tắt trong ngày. Hạn mức sẽ được làm mới vào 00:00 ngày mai.'
       : 'You have reached your daily word limit. It will reset at 00:00 tomorrow.'
   }
 
   if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
-    if (hasUsableBackendMessage) return backendMessage
     return lang === 'vi'
-      ? 'Dịch vụ tóm tắt tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
-      : 'The summarization service is temporarily unavailable. Please try again in a few minutes.'
+      ? 'Dịch vụ AI xử lý tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The AI summarization service is temporarily unavailable. Please try again in a few minutes.'
   }
 
-  if (looksLikeLimitError) {
-    return lang === 'vi'
-      ? 'Văn bản vượt quá giới hạn của gói hiện tại. Hãy rút ngắn nội dung hoặc nâng cấp gói để tóm tắt.'
-      : 'Your text exceeds the limit for your current plan. Shorten it or upgrade your tier to continue.'
-  }
-
-  if (hasUsableBackendMessage) {
-    return backendMessage
-  }
-
-  if (status === 400) {
-    return lang === 'vi'
-      ? 'Yêu cầu tóm tắt chưa hợp lệ. Vui lòng kiểm tra lại nội dung đầu vào.'
-      : 'The summarize request is invalid. Please check your input and try again.'
+  if (error?.message) {
+    return error.message
   }
 
   if (status >= 500) {
-    if (!looksLikeHtmlError && rawText.trim()) {
-      return lang === 'vi'
-        ? 'Máy chủ tạm thời không xử lý được yêu cầu tóm tắt. Vui lòng thử lại sau.'
-        : 'The server cannot process this summarize request right now. Please try again later.'
-    }
     return t('homePage.errors.serverError')
-  }
-
-  if (status > 0) {
-    return lang === 'vi'
-      ? `Không thể tóm tắt lúc này (mã ${status}). Vui lòng thử lại.`
-      : `Unable to summarize right now (status ${status}). Please try again.`
   }
 
   return lang === 'vi'
@@ -179,120 +151,70 @@ function getSummarizeErrorMessage(error, t, lang) {
 
 function getFileUploadErrorMessage(error, t, lang) {
   const status = Number(error?.status || 0)
-  const data = error?.data
-  const dataObject = data && typeof data === 'object' ? data : {}
-  const code = String(dataObject?.error || dataObject?.code || dataObject?.error_code || '').toUpperCase()
-  const backendMessage = String(dataObject?.message || '')
-  const rawText = String(
-    dataObject?.message ||
-    dataObject?.error ||
-    (typeof data === 'string' ? data : '') ||
-    error?.message ||
-    '',
-  ).toLowerCase()
-
-  const hasUsableBackendMessage =
-    backendMessage.trim() &&
-    backendMessage.length < 300 &&
-    !backendMessage.toLowerCase().includes('<html') &&
-    !backendMessage.toLowerCase().includes('<!doctype')
-
-  if (status === 400 || code === 'UNSUPPORTED_FILE') {
-    return lang === 'vi'
-      ? 'Định dạng tệp không được hỗ trợ. Vui lòng tải lên file .pdf, .doc, .docx, .txt, .png, .jpg hoặc .jpeg.'
-      : 'Unsupported file type. Please upload a .pdf, .doc, .docx, .txt, .png, .jpg, or .jpeg file.'
-  }
-
-  if (code === 'VALIDATION_ERROR') {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Tệp tải lên chưa hợp lệ. Vui lòng kiểm tra lại tệp và thử lại.'
-      : 'The uploaded file is invalid. Please verify the file and try again.'
-  }
-
-  if (code === 'TEXT_EXTRACT_FAILED' || status === 422) {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.'
-      : 'We could not extract readable text from this file. Please try another file or paste the text manually.'
-  }
-
-  const looksLikeFileTooLarge =
-    code === 'FILE_TOO_LARGE' ||
-    (status === 413 && !rawText.includes('text_too_long')) ||
-    rawText.includes('file too large') ||
-    rawText.includes('payload too large') ||
-    rawText.includes('request entity too large')
-
-  if (looksLikeFileTooLarge) {
-    return lang === 'vi'
-      ? 'Tệp quá lớn để xử lý. Vui lòng chọn tệp nhỏ hơn.'
-      : 'The file is too large to process. Please choose a smaller file.'
-  }
-
-  const looksLikeContentLimitError =
-    code === 'TEXT_TOO_LONG' ||
-    code === 'CHAR_LIMIT_EXCEEDED' ||
-    code === 'WORD_LIMIT_EXCEEDED' ||
-    code === 'INPUT_LIMIT_EXCEEDED' ||
-    code === 'EMPTY_TEXT' ||
-    rawText.includes('character limit') ||
-    rawText.includes('word limit') ||
-    rawText.includes('input limit') ||
-    rawText.includes('too long') ||
-    (rawText.includes('limit') && !rawText.includes('rate limit'))
-
-  if (looksLikeContentLimitError) {
-    return lang === 'vi'
-      ? 'Nội dung trong tệp vượt quá giới hạn của gói hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói để tiếp tục.'
-      : 'The file content exceeds the limit for your current plan. Shorten the content or upgrade your plan to continue.'
-  }
-
-  if (status === 429 || code === 'DAILY_EXTRACT_LIMIT_EXCEEDED' || code === 'DAILY_WORD_LIMIT_EXCEEDED') {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Bạn đã hết lượt trích xuất trong ngày. Vui lòng thử lại vào ngày mai.'
-      : 'You have reached your daily extraction limit. Please try again tomorrow.'
-  }
-
-  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
-    if (hasUsableBackendMessage) return backendMessage
-    return lang === 'vi'
-      ? 'Dịch vụ tóm tắt tệp tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
-      : 'The file summarization service is temporarily unavailable. Please try again in a few minutes.'
-  }
+  const code = String(error?.code || '').toUpperCase()
 
   if (status === 401 || status === 403) {
     return t('homePage.errors.authRequired')
   }
 
-  if (hasUsableBackendMessage) {
-    return backendMessage
+  if (code === 'EMPTY_FILE') {
+    return lang === 'vi'
+      ? 'Tệp tải lên không được rỗng (0 bytes).'
+      : 'The uploaded file cannot be empty (0 bytes).'
   }
 
-  if (status === 400) {
+  if (code === 'UNSUPPORTED_FILE_TYPE' || code === 'UNSUPPORTED_FILE') {
     return lang === 'vi'
-      ? 'Yêu cầu tóm tắt tệp chưa hợp lệ. Vui lòng kiểm tra lại tệp đầu vào.'
-      : 'The file summarize request is invalid. Please verify the uploaded file.'
+      ? 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.'
+      : 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.'
+  }
+
+  if (code === 'FILE_TOO_LARGE' || status === 413) {
+    return lang === 'vi'
+      ? 'Dung lượng tệp vượt quá giới hạn tối đa cho phép của gói cước. Vui lòng chọn tệp nhỏ hơn.'
+      : 'The file size exceeds the allowed limit for your subscription plan. Please choose a smaller file.'
+  }
+
+  if (code === 'DAILY_EXTRACT_LIMIT_EXCEEDED' || status === 429) {
+    return lang === 'vi'
+      ? 'Bạn đã dùng hết số lượt trích xuất tài liệu trong ngày hôm nay.'
+      : 'You have reached your daily document extraction limit.'
+  }
+
+  if (code === 'TEXT_EXTRACT_FAILED' || status === 422) {
+    return lang === 'vi'
+      ? 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.'
+      : 'We could not extract readable text from this file. Please try another file or paste text manually.'
+  }
+
+  if (code === 'TEXT_TOO_LONG' || code === 'CHAR_LIMIT_EXCEEDED' || code === 'WORD_LIMIT_EXCEEDED') {
+    return lang === 'vi'
+      ? 'Nội dung trong tệp vượt quá giới hạn của gói cước hiện tại. Hãy rút gọn nội dung hoặc nâng cấp gói.'
+      : 'The file content exceeds the limit for your current plan. Shorten the content or upgrade your plan.'
+  }
+
+  if (code === 'ML_SERVICE_UNAVAILABLE' || status === 503) {
+    return lang === 'vi'
+      ? 'Dịch vụ xử lý tệp tạm thời không khả dụng. Vui lòng thử lại sau ít phút.'
+      : 'The file service is temporarily unavailable. Please try again in a few minutes.'
+  }
+
+  if (error?.message) {
+    return error.message
   }
 
   if (status >= 500) {
     return t('homePage.errors.serverError')
   }
 
-  if (status > 0) {
-    return lang === 'vi'
-      ? `Không thể xử lý tệp lúc này (mã ${status}). Vui lòng thử lại.`
-      : `Unable to process this file right now (status ${status}). Please try again.`
-  }
-
   return lang === 'vi'
-    ? 'Không thể kết nối tới dịch vụ tóm tắt tệp. Vui lòng kiểm tra mạng và thử lại.'
-    : 'Cannot reach the file summarization service. Please check your connection and try again.'
+    ? 'Yêu cầu xử lý tệp chưa hợp lệ. Vui lòng kiểm tra lại tệp đầu vào.'
+    : 'The file processing request is invalid. Please verify the uploaded file.'
 }
 
 function HomePage() {
   const { t, lang } = useLanguage()
+  const { tier: userTier, maxFolders, isAuthenticated } = useAuth()
   const fileInputRef = useRef(null)
 
   const [inputText, setInputText] = useState('')
@@ -318,8 +240,6 @@ function HomePage() {
   const [selectedCollectionColor, setSelectedCollectionColor] = useState('')
   const [collections, setCollections] = useState([])
   const [collectionSearchQuery, setCollectionSearchQuery] = useState('')
-  const [maxFolders, setMaxFolders] = useState(0)
-  const [userTier, setUserTier] = useState('free')
   const [currentSummaryId, setCurrentSummaryId] = useState('')
   const saveContainerRef = useRef(null)
   const downloadToggleRef = useRef(null)
@@ -476,64 +396,7 @@ function HomePage() {
     return Boolean(textFromOcr)
   }
 
-  useEffect(() => {
-    const loadUserSubscription = async () => {
-      const token = localStorage.getItem('accessToken')
-      if (!token) {
-        setUserTier('free')
-        setMaxFolders(0)
-        return
-      }
 
-      try {
-        const [subResponse, plansResponse] = await Promise.all([
-          subscriptionsApi.me().catch(() => null),
-          subscriptionsApi.plans().catch(() => null),
-        ])
-
-        const subData = subResponse?.data || subResponse || {}
-        const planObj = subData?.plan || subData?.subscription?.plan || subData?.subscription || {}
-
-        let folders =
-          subData?.max_folders ??
-          subData?.maxFolders ??
-          planObj?.max_folders ??
-          planObj?.maxFolders ??
-          null
-
-        if (folders === null && plansResponse) {
-          const plansList = plansResponse?.data?.plans || plansResponse?.data || plansResponse || []
-          const currentPlanId = subData?.plan_id || subData?.planId || planObj?.id || planObj?.plan_id
-          const currentTier = String(subData?.tier || planObj?.tier || planObj?.name || 'free').toLowerCase()
-
-          if (Array.isArray(plansList)) {
-            const matched = plansList.find((p) =>
-              (currentPlanId && (p?.id === currentPlanId || p?.plan_id === currentPlanId)) ||
-              (String(p?.name || p?.tier || '').toLowerCase() === currentTier),
-            )
-            if (matched) {
-              folders = matched?.max_folders ?? matched?.maxFolders ?? null
-            }
-          }
-        }
-
-        const tier =
-          subData?.tier ||
-          subData?.tier_name ||
-          planObj?.tier ||
-          planObj?.name ||
-          'free'
-
-        setUserTier(String(tier).toLowerCase())
-        setMaxFolders(Number(folders ?? 0))
-      } catch {
-        setUserTier('free')
-        setMaxFolders(0)
-      }
-    }
-
-    loadUserSubscription()
-  }, [])
 
   const loadCollections = async () => {
     const token = localStorage.getItem('accessToken')
@@ -593,6 +456,10 @@ function HomePage() {
     const trimmed = createTitle.trim()
     if (!trimmed) {
       setCreateError(lang === 'vi' ? 'Vui lòng nhập tên bộ sưu tập.' : 'Please enter a collection title.')
+      return
+    }
+    if (trimmed.length > 100) {
+      setCreateError(lang === 'vi' ? 'Tên bộ sưu tập không được vượt quá 100 ký tự.' : 'Collection title must not exceed 100 characters.')
       return
     }
 
@@ -815,6 +682,27 @@ function HomePage() {
   const handleSummarize = async () => {
     if (!inputText.trim() && !selectedUploadFile) return
 
+    if (!selectedUploadFile) {
+      const trimmed = inputText.trim()
+      if (trimmed.length < 10) {
+        setErrorMessage(
+          lang === 'vi'
+            ? 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.'
+            : 'Text is too short. A minimum of 10 characters is required.',
+        )
+        return
+      }
+    }
+
+    if (selectedUploadFile && selectedUploadFile.size === 0) {
+      setErrorMessage(
+        lang === 'vi'
+          ? 'Tệp tải lên không được rỗng (0 bytes).'
+          : 'The uploaded file cannot be empty (0 bytes).',
+      )
+      return
+    }
+
     if (mode === 'ocr' && !selectedUploadFile) {
       setErrorMessage(t('ocr.requiresUpload'))
       return
@@ -856,7 +744,7 @@ function HomePage() {
         const formData = new FormData()
         formData.append('file', selectedUploadFile)
         formData.append('do_summarize', String(mode === 'summary'))
-        formData.append('length_type', LENGTH_MAP[lengthIndex] || 'medium')
+        formData.append('length_ratio', getSelectedLengthPayload(mode, lengthIndex))
         if (selectedCollectionId) {
           formData.append('collection_id', selectedCollectionId)
         }
@@ -932,11 +820,11 @@ function HomePage() {
         return
       }
 
-      const selectedSummaryLength = LENGTH_MAP[lengthIndex] || 'medium'
+      const selectedSummaryLength = getSelectedLengthPayload(mode, lengthIndex)
       const textPayload = {
         text: inputText,
         do_summarize: mode === 'summary',
-        length_type: selectedSummaryLength,
+        length_ratio: selectedSummaryLength,
       }
       if (selectedCollectionId) {
         textPayload.collection_id = selectedCollectionId
@@ -1065,6 +953,15 @@ function HomePage() {
         lang === 'vi'
           ? 'Vui lòng chọn một lý do đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.'
           : 'Please select a reason tag or provide a comment for low ratings.',
+      )
+      return
+    }
+
+    if (trimmedComment.length > 1000) {
+      setFeedbackSubmitError(
+        lang === 'vi'
+          ? 'Nội dung nhận xét không được vượt quá 1000 ký tự.'
+          : 'Comment must not exceed 1000 characters.',
       )
       return
     }
@@ -1285,30 +1182,32 @@ function HomePage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:min-w-[280px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              {t('controls.summaryLength')}
-            </span>
-            <span className="text-sm font-semibold text-accent">
-              {t(`controls.${LENGTH_MAP[lengthIndex]}`)}
-            </span>
+        {mode !== 'ocr' && (
+          <div className="flex flex-col gap-2 sm:min-w-[280px]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                {mode === 'extract' ? t('controls.extractLength') : t('controls.summaryLength')}
+              </span>
+              <span className="text-sm font-semibold text-accent">
+                {getSelectedLengthLabel(mode, lengthIndex)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={1}
+              value={lengthIndex}
+              onChange={(e) => setLengthIndex(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-slate-500">
+              {(LENGTH_OPTIONS[mode] || LENGTH_OPTIONS.summary).map((opt) => (
+                <span key={opt.label}>{opt.label}</span>
+              ))}
+            </div>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={1}
-            value={lengthIndex}
-            onChange={(e) => setLengthIndex(Number(e.target.value))}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-slate-500">
-            <span>{t('controls.short')}</span>
-            <span>{t('controls.medium')}</span>
-            <span>{t('controls.long')}</span>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Workspace */}
@@ -1419,13 +1318,13 @@ function HomePage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-surface-border px-4 py-2.5">
+          <div className="flex flex-col gap-2.5 border-t border-surface-border px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-slate-500">
               {outputStats.words} {t('input.words')} &mdash; {outputStats.sentences}{' '}
               {t('input.sentences')}
             </span>
 
-            <div className="relative flex items-center gap-2">
+            <div className="relative flex flex-wrap items-center gap-1.5 sm:gap-2">
               {summary && (
                 <div
                   className="relative"
@@ -1653,9 +1552,9 @@ function HomePage() {
             </button>
 
             {saveMenuOpen && (
-              <div className="absolute bottom-full right-0 mb-3 z-50 flex items-start gap-3">
+              <div className="absolute bottom-full right-0 mb-3 z-50 flex flex-col sm:flex-row items-start gap-3 max-w-[calc(100vw-32px)]">
                 {/* Main Collections Dropdown */}
-                <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
+                <div className="w-72 max-w-full rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl">
                   <div className="mb-2.5 flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       {lang === 'vi' ? 'Lưu vào bộ sưu tập' : 'Save to collection'}
@@ -1767,7 +1666,7 @@ function HomePage() {
 
                 {/* Side Panel: Create Collection Box */}
                 {isCreatingCollection && (
-                  <div className="w-72 rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="w-72 max-w-full rounded-2xl border border-surface-border bg-surface-raised/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
                     <div className="mb-2.5 flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         {lang === 'vi' ? 'Tạo bộ sưu tập mới' : 'Create New Collection'}

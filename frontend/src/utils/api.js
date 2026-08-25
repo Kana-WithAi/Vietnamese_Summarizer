@@ -12,19 +12,271 @@ function getPreferredLanguage() {
   return htmlLang === 'en' ? 'en' : 'vi'
 }
 
-function formatLocalizedApiError(message) {
-  if (typeof message !== 'string') {
-    return message
+export const API_ERROR_MESSAGES = {
+  // Group 1: Analytics
+  INVALID_DATE_FORMAT: {
+    vi: 'Định dạng ngày không hợp lệ. Vui lòng sử dụng định dạng YYYY-MM-DD.',
+    en: 'Invalid date format. Please use YYYY-MM-DD.',
+  },
+  INVALID_DATE_ORDER: {
+    vi: 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
+    en: 'From date must be earlier than or equal to To date.',
+  },
+  DATE_IN_FUTURE: {
+    vi: 'Ngày tra cứu không được vượt quá ngày hiện tại.',
+    en: 'Selected date cannot be in the future.',
+  },
+
+  // Group 2: Summarize & OCR
+  TEXT_TOO_SHORT: {
+    vi: 'Văn bản quá ngắn, yêu cầu tối thiểu 10 ký tự.',
+    en: 'Text is too short. A minimum of 10 characters is required.',
+  },
+  TEXT_TOO_LONG: {
+    vi: 'Văn bản vượt quá hạn mức từ cho phép của gói cước hiện tại.',
+    en: 'Text exceeds the maximum word limit for your current plan.',
+  },
+  INVALID_LENGTH_RATIO: {
+    vi: 'Tỷ lệ độ dài không hợp lệ (phải lớn hơn 0 và nhỏ hơn hoặc bằng 100%).',
+    en: 'Invalid length ratio (must be greater than 0 and up to 100%).',
+  },
+  DAILY_WORD_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã dùng hết hạn mức từ tóm tắt trong ngày. Hạn mức sẽ được làm mới vào 00:00 ngày mai.',
+    en: 'You have reached your daily word limit. It will reset at 00:00 tomorrow.',
+  },
+  EMPTY_FILE: {
+    vi: 'Tệp tải lên không được rỗng (0 bytes).',
+    en: 'The uploaded file cannot be empty (0 bytes).',
+  },
+  UNSUPPORTED_FILE_TYPE: {
+    vi: 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.',
+    en: 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.',
+  },
+  UNSUPPORTED_FILE: {
+    vi: 'Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pdf, .docx, .doc, .txt, .png, .jpg, hoặc .jpeg.',
+    en: 'Unsupported file type. Please upload a .pdf, .docx, .doc, .txt, .png, .jpg, or .jpeg file.',
+  },
+  FILE_TOO_LARGE: {
+    vi: 'Dung lượng tệp vượt quá giới hạn tối đa cho phép của gói cước.',
+    en: 'The file size exceeds the allowed limit for your subscription plan.',
+  },
+  DAILY_EXTRACT_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã dùng hết số lượt trích xuất tài liệu trong ngày hôm nay.',
+    en: 'You have reached your daily document extraction limit.',
+  },
+  TEXT_EXTRACT_FAILED: {
+    vi: 'Không thể trích xuất nội dung từ tệp này. Vui lòng thử tệp khác hoặc dán văn bản thủ công.',
+    en: 'Unable to extract content from this file. Please try another file or paste text manually.',
+  },
+  ML_SERVICE_UNAVAILABLE: {
+    vi: 'Hệ thống AI xử lý đang bận hoặc tạm thời gián đoạn. Vui lòng thử lại sau ít phút.',
+    en: 'The AI summarization service is currently busy or unavailable. Please try again shortly.',
+  },
+
+  // Group 3: Collections & History
+  COLLECTION_NAME_REQUIRED: {
+    vi: 'Tên thư mục không được để trống.',
+    en: 'Collection name cannot be empty.',
+  },
+  COLLECTION_NAME_TOO_LONG: {
+    vi: 'Tên thư mục không được vượt quá 100 ký tự.',
+    en: 'Collection name must not exceed 100 characters.',
+  },
+  INVALID_COLOR: {
+    vi: 'Mã màu không hợp lệ. Vui lòng sử dụng mã màu HEX (ví dụ: #7C3AED hoặc #F53).',
+    en: 'Invalid color format. Please use a HEX color code (e.g. #7C3AED or #F53).',
+  },
+  COLLECTION_DESC_TOO_LONG: {
+    vi: 'Mô tả thư mục không được vượt quá 500 ký tự.',
+    en: 'Collection description must not exceed 500 characters.',
+  },
+  INVALID_ID: {
+    vi: 'Mã định danh không hợp lệ.',
+    en: 'Invalid identifier format.',
+  },
+  FOLDER_LIMIT_EXCEEDED: {
+    vi: 'Bạn đã đạt giới hạn số lượng thư mục tối đa của gói cước hiện tại. Vui lòng nâng cấp gói để tạo thêm.',
+    en: 'You have reached the maximum folder limit for your current plan. Upgrade to create more.',
+  },
+  NOT_FOUND: {
+    vi: 'Không tìm thấy dữ liệu yêu cầu hoặc mục này đã bị xóa.',
+    en: 'The requested resource was not found or has been removed.',
+  },
+
+  // Group 4: Feedbacks
+  CONTENT_REQUIRED: {
+    vi: 'Vui lòng chọn ít nhất một tiêu chí đánh giá hoặc nhập nhận xét khi đánh giá từ 1 đến 3 sao.',
+    en: 'Please select at least one criteria tag or provide comments for ratings of 1 to 3 stars.',
+  },
+  FORBIDDEN: {
+    vi: 'Bạn không có quyền thực hiện thao tác này.',
+    en: 'You do not have permission to perform this action.',
+  },
+
+  // Group 5: Payments
+  PLAN_NOT_FOUND: {
+    vi: 'Gói cước không tồn tại hoặc đã ngừng cung cấp.',
+    en: 'Subscription plan not found or no longer available.',
+  },
+  INVALID_URL: {
+    vi: 'Đường dẫn liên kết không hợp lệ (phải bắt đầu bằng http:// hoặc https://).',
+    en: 'Invalid URL format (must start with http:// or https://).',
+  },
+  TRANSACTION_NOT_PENDING: {
+    vi: 'Chỉ có thể hủy giao dịch đang trong trạng thái chờ thanh toán.',
+    en: 'Only pending transactions can be cancelled.',
+  },
+
+  // Group 6: Auth
+  EMAIL_EXISTS: {
+    vi: 'Địa chỉ email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.',
+    en: 'This email address is already registered. Please log in or use another email.',
+  },
+  PASSWORD_TOO_SHORT: {
+    vi: 'Mật khẩu quá ngắn. Yêu cầu tối thiểu 8 ký tự.',
+    en: 'Password is too short. Minimum 8 characters required.',
+  },
+  PASSWORD_TOO_LONG: {
+    vi: 'Mật khẩu quá dài. Tối đa không quá 72 ký tự.',
+    en: 'Password is too long. Maximum 72 characters allowed.',
+  },
+  SAME_PASSWORD: {
+    vi: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.',
+    en: 'New password cannot be the same as your current password.',
+  },
+  INVALID_PASSWORD: {
+    vi: 'Mật khẩu hiện tại không chính xác.',
+    en: 'Current password is incorrect.',
+  },
+  INVALID_OTP: {
+    vi: 'Mã xác thực OTP không hợp lệ hoặc đã hết hạn (5 phút).',
+    en: 'Invalid or expired OTP code (5-minute expiration).',
+  },
+  OTP_RATE_LIMIT: {
+    vi: 'Vui lòng đợi 60 giây trước khi yêu cầu gửi lại mã OTP mới.',
+    en: 'Please wait 60 seconds before requesting a new OTP.',
+  },
+
+  // Group 7: Admin
+  CANNOT_BAN_SELF: {
+    vi: 'Quản trị viên không thể tự vô hiệu hóa tài khoản của chính mình.',
+    en: 'Administrators cannot disable their own account.',
+  },
+  VALIDATION_ERROR: {
+    vi: 'Dữ liệu đầu vào không hợp lệ. Vui lòng kiểm tra lại thông tin.',
+    en: 'Invalid input data. Please verify your information.',
+  },
+}
+
+function extractErrorDetails(data) {
+  let code = ''
+  let message = ''
+
+  if (typeof data === 'string') {
+    const trimmed = data.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        return extractErrorDetails(parsed)
+      } catch {
+        message = trimmed
+      }
+    } else {
+      message = trimmed
+    }
+  } else if (data && typeof data === 'object') {
+    if (data.error && typeof data.error === 'object') {
+      code = String(data.error.code || data.error.error_code || data.error.errorCode || '').trim().toUpperCase()
+      message = String(data.error.message || data.error.msg || data.error.detail || '').trim()
+    } else if (typeof data.error === 'string') {
+      message = data.error.trim()
+    }
+
+    if (!code && data.code && typeof data.code === 'string') {
+      code = String(data.code).trim().toUpperCase()
+    }
+    if (!code && data.error_code) {
+      code = String(data.error_code).trim().toUpperCase()
+    }
+    if (!code && data.errorCode) {
+      code = String(data.errorCode).trim().toUpperCase()
+    }
+    if (!message && data.message) {
+      message = String(data.message).trim()
+    }
+    if (!message && data.detail) {
+      message = String(data.detail).trim()
+    }
+    if (!message && data.msg) {
+      message = String(data.msg).trim()
+    }
+    if (!message && data.errorMessage) {
+      message = String(data.errorMessage).trim()
+    }
+    if (!message && Array.isArray(data.errors) && data.errors.length > 0) {
+      message = typeof data.errors[0] === 'string' ? data.errors[0] : JSON.stringify(data.errors[0])
+    }
   }
 
-  const normalized = message.trim()
-  if (!normalized) {
-    return message
+  // If code is not set, but message looks like an uppercase or snake_case code (e.g. "EMAIL_EXISTS", "invalid_password")
+  if (!code && message && /^[A-Za-z0-9_-]+$/.test(message) && message.length < 50) {
+    const candidateCode = message.toUpperCase().replace(/-/g, '_')
+    if (API_ERROR_MESSAGES[candidateCode]) {
+      code = candidateCode
+    }
   }
 
+  return { code, message }
+}
+
+function isLikelyTechnicalBackendMessage(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return false
+
+  const technicalMarkers = [
+    'panic:',
+    'goroutine',
+    'stack trace',
+    'traceback',
+    'sql:',
+    'database error',
+    'sqlstate',
+    'internal server error',
+    'runtime error',
+    'exception:',
+    'at ',
+    'call stack',
+    'request id',
+    'trace id',
+    'debug:',
+    'error id',
+    '<html',
+    '<!doctype',
+  ]
+
+  return technicalMarkers.some((marker) => normalized.includes(marker))
+}
+
+export function getLocalizedErrorMessage(data, defaultFallback, status) {
   const lang = getPreferredLanguage()
-  const lower = normalized.toLowerCase()
+  const { code, message } = extractErrorDetails(data)
 
+  // 1. Check exact mapped error codes in API_ERROR_MESSAGES
+  if (code && API_ERROR_MESSAGES[code]) {
+    return API_ERROR_MESSAGES[code][lang] || API_ERROR_MESSAGES[code].en
+  }
+
+  // 2. Check if message itself maps to a known code in API_ERROR_MESSAGES
+  if (message) {
+    const normalizedKey = message.trim().toUpperCase().replace(/[\s-]+/g, '_')
+    if (API_ERROR_MESSAGES[normalizedKey]) {
+      return API_ERROR_MESSAGES[normalizedKey][lang] || API_ERROR_MESSAGES[normalizedKey].en
+    }
+  }
+
+  // 3. Check common English backend error phrases
+  const lower = (message || '').toLowerCase()
   const commonTranslations = {
     'valid authentication token is required': {
       en: 'Please log in again to continue.',
@@ -38,9 +290,13 @@ function formatLocalizedApiError(message) {
       en: 'Please log in again to continue.',
       vi: 'Vui lòng đăng nhập lại để tiếp tục.',
     },
+    'token expired': {
+      en: 'Your session has expired. Please log in again.',
+      vi: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+    },
     'unauthorized': {
-      en: 'Unauthorized request.',
-      vi: 'Yêu cầu không được phép.',
+      en: 'Unauthorized request. Please log in.',
+      vi: 'Yêu cầu không được phép. Vui lòng đăng nhập.',
     },
     'forbidden': {
       en: 'Access forbidden.',
@@ -54,9 +310,45 @@ function formatLocalizedApiError(message) {
       en: 'Network error. Please check your connection and try again.',
       vi: 'Lỗi mạng. Vui lòng kiểm tra kết nối và thử lại.',
     },
+    'record not found': {
+      en: 'The requested record was not found.',
+      vi: 'Không tìm thấy dữ liệu yêu cầu.',
+    },
     'not found': {
       en: 'The requested resource was not found.',
       vi: 'Không tìm thấy tài nguyên yêu cầu.',
+    },
+    'already exists': {
+      en: 'This item already exists.',
+      vi: 'Mục này đã tồn tại.',
+    },
+    'invalid credentials': {
+      en: 'Invalid email or password.',
+      vi: 'Email hoặc mật khẩu không chính xác.',
+    },
+    'incorrect password': {
+      en: 'Current password is incorrect.',
+      vi: 'Mật khẩu hiện tại không chính xác.',
+    },
+    'invalid password': {
+      en: 'Current password is incorrect.',
+      vi: 'Mật khẩu không chính xác.',
+    },
+    'email already exists': {
+      en: 'This email is already registered.',
+      vi: 'Địa chỉ email này đã được sử dụng.',
+    },
+    'too many requests': {
+      en: 'Too many requests. Please wait a moment and try again.',
+      vi: 'Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát.',
+    },
+    'rate limit': {
+      en: 'Rate limit exceeded. Please wait a moment.',
+      vi: 'Vượt quá giới hạn lượt gọi. Vui lòng đợi trong giây lát.',
+    },
+    'bad request': {
+      en: 'Invalid request data.',
+      vi: 'Dữ liệu yêu cầu không hợp lệ.',
     },
   }
 
@@ -66,78 +358,78 @@ function formatLocalizedApiError(message) {
     }
   }
 
-  return normalized
-}
-
-function isLikelyTechnicalBackendMessage(value) {
-  if (typeof value !== 'string') {
-    return false
+  // 4. If backend provided a clear user-facing message (not a technical crash dump), return it!
+  if (message && !isLikelyTechnicalBackendMessage(message)) {
+    return message
   }
 
-  const normalized = value.trim()
-  if (!normalized) {
-    return false
+  // 5. If a custom fallback is specified, use it
+  if (defaultFallback) {
+    return defaultFallback
   }
 
-  const lower = normalized.toLowerCase()
-  const technicalMarkers = [
-    'panic:',
-    'goroutine',
-    'stack trace',
-    'traceback',
-    'sql:',
-    'database error',
-    'internal server error',
-    'runtime error',
-    'exception:',
-    'at ',
-    'call stack',
-    'request id',
-    'trace id',
-    'debug:',
-    'error id',
-  ]
-
-  return technicalMarkers.some((marker) => lower.includes(marker))
-}
-
-function getErrorMessage(data) {
-  const genericMessage = getPreferredLanguage() === 'vi'
-    ? 'Yêu cầu không thể hoàn thành.'
-    : 'The request could not be completed.'
-
-  if (!data) {
-    return genericMessage
-  }
-
-  if (typeof data === 'string') {
-    const formatted = formatLocalizedApiError(data)
-    return isLikelyTechnicalBackendMessage(data) ? genericMessage : formatted
-  }
-
-  if (typeof data === 'object') {
-    const candidates = [data.message, data.error, data.detail, data.msg]
-
-    for (const candidate of candidates) {
-      if (typeof candidate === 'string' && candidate.trim()) {
-        if (isLikelyTechnicalBackendMessage(candidate)) {
-          return genericMessage
-        }
-        return formatLocalizedApiError(candidate)
-      }
-
-      if (candidate && typeof candidate === 'object') {
-        const nested = getErrorMessage(candidate)
-        if (nested && nested !== genericMessage) {
-          return nested
-        }
-      }
+  // 6. HTTP Status Code based fallback
+  if (status) {
+    const statusMessages = {
+      400: {
+        vi: 'Dữ liệu yêu cầu không hợp lệ. Vui lòng kiểm tra lại.',
+        en: 'Invalid request data. Please verify your information.',
+      },
+      401: {
+        vi: 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.',
+        en: 'Session expired or invalid. Please log in again.',
+      },
+      403: {
+        vi: 'Bạn không có quyền thực hiện thao tác này.',
+        en: 'You do not have permission to perform this action.',
+      },
+      404: {
+        vi: 'Không tìm thấy dữ liệu yêu cầu hoặc mục này đã bị xóa.',
+        en: 'The requested resource was not found or has been removed.',
+      },
+      409: {
+        vi: 'Dữ liệu đã tồn tại hoặc xảy ra xung đột.',
+        en: 'Resource conflict or data already exists.',
+      },
+      422: {
+        vi: 'Dữ liệu đầu vào không hợp lệ.',
+        en: 'Validation error. Please check your input.',
+      },
+      429: {
+        vi: 'Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát.',
+        en: 'Too many requests. Please wait a moment and try again.',
+      },
+      500: {
+        vi: 'Hệ thống máy chủ gặp sự cố. Vui lòng thử lại sau.',
+        en: 'Internal server error. Please try again later.',
+      },
+      502: {
+        vi: 'Không thể kết nối đến máy chủ phía sau (Bad Gateway).',
+        en: 'Bad Gateway. The service is temporarily unavailable.',
+      },
+      503: {
+        vi: 'Dịch vụ tạm thời bận hoặc bảo trì. Vui lòng thử lại sau.',
+        en: 'Service Unavailable. Please try again shortly.',
+      },
+      504: {
+        vi: 'Hết thời gian phản hồi từ máy chủ (Gateway Timeout).',
+        en: 'Gateway Timeout. Please try again.',
+      },
     }
 
-    return genericMessage
+    if (statusMessages[status]) {
+      return statusMessages[status][lang] || statusMessages[status].en
+    }
   }
 
-  return genericMessage
+  // 7. Generic fallback
+  return lang === 'vi'
+    ? 'Yêu cầu không thể hoàn thành. Vui lòng thử lại.'
+    : 'The request could not be completed. Please try again.'
+}
+
+function getErrorMessage(data, status) {
+  return getLocalizedErrorMessage(data, null, status)
 }
 
 async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
@@ -172,8 +464,12 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 
   if (!response.ok) {
-    const error = new Error(getErrorMessage(data))
+    const errorDetails = extractErrorDetails(data)
+    const localizedMessage = getLocalizedErrorMessage(data, null, response.status)
+    const error = new Error(localizedMessage)
     error.status = response.status
+    error.code = errorDetails.code
+    error.rawMessage = errorDetails.message
     error.data = data
     throw error
   }
@@ -213,8 +509,12 @@ async function requestBinary(path, { method = 'GET', body, auth = false, headers
       data = await response.text()
     }
 
-    const error = new Error(getErrorMessage(data))
+    const errorDetails = extractErrorDetails(data)
+    const localizedMessage = getLocalizedErrorMessage(data, null, response.status)
+    const error = new Error(localizedMessage)
     error.status = response.status
+    error.code = errorDetails.code
+    error.rawMessage = errorDetails.message
     error.data = data
     throw error
   }
@@ -239,6 +539,66 @@ function buildQuery(params = {}) {
   return content ? `?${content}` : ''
 }
 
+const cacheStore = new Map()
+const inFlightStore = new Map()
+
+export function clearApiCache(prefix = '') {
+  if (!prefix) {
+    cacheStore.clear()
+    inFlightStore.clear()
+    return
+  }
+  for (const key of cacheStore.keys()) {
+    if (key.includes(prefix)) {
+      cacheStore.delete(key)
+    }
+  }
+  for (const key of inFlightStore.keys()) {
+    if (key.includes(prefix)) {
+      inFlightStore.delete(key)
+    }
+  }
+}
+
+export async function cachedRequest(path, options = {}, ttlMs = 3 * 60 * 1000) {
+  const method = options.method || 'GET'
+  if (method !== 'GET') {
+    return request(path, options)
+  }
+
+  const token = options.auth ? localStorage.getItem('accessToken') : ''
+  const cacheKey = `${options.auth ? `auth:${token}:` : 'pub:'}${path}`
+
+  if (!options.force) {
+    const cached = cacheStore.get(cacheKey)
+    if (cached && Date.now() < cached.expiry) {
+      return cached.data
+    }
+
+    const inFlight = inFlightStore.get(cacheKey)
+    if (inFlight) {
+      return inFlight
+    }
+  }
+
+  const promise = request(path, options)
+    .then((data) => {
+      cacheStore.set(cacheKey, {
+        data,
+        expiry: Date.now() + ttlMs,
+      })
+      return data
+    })
+    .finally(() => {
+      setTimeout(() => {
+        inFlightStore.delete(cacheKey)
+      }, 300)
+    })
+
+  inFlightStore.set(cacheKey, promise)
+  return promise
+}
+
 export const authApi = {
   login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
   logout: () => request('/auth/logout', { method: 'POST', auth: true }),
@@ -249,17 +609,33 @@ export const authApi = {
   verifyResetOtp: (payload) => request('/auth/verify-reset-otp', { method: 'POST', body: payload }),
   resetPassword: (payload) => request('/auth/reset-password', { method: 'POST', body: payload }),
   changePassword: (payload) => request('/auth/change-password', { method: 'POST', body: payload, auth: true }),
-  updateProfile: (payload) => request('/auth/profile', { method: 'PUT', body: payload, auth: true }),
-  me: () => request('/auth/me', { auth: true }),
+  updateProfile: async (payload) => {
+    const res = await request('/auth/profile', { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/auth/me')
+    return res
+  },
+  me: (force = false) => cachedRequest('/auth/me', { auth: true, force }, 60 * 1000),
 }
 
 export const subscriptionsApi = {
-  plans: () => request('/subscriptions/plans'),
-  me: () => request('/subscriptions/me', { auth: true }),
+  plans: (force = false) => cachedRequest('/subscriptions/plans', { force }, 5 * 60 * 1000),
+  me: (force = false) => cachedRequest('/subscriptions/me', { auth: true, force }, 60 * 1000),
 }
 
 export const summarizeApi = {
-  text: (payload) => request('/summarize/text', { method: 'POST', body: payload, auth: true }),
+  text: (payload) => {
+    const normalizedPayload =
+      payload && typeof payload === 'object' && 'length_ratio' in payload
+        ? {
+            ...payload,
+            length_ratio:
+              typeof payload.length_ratio === 'number'
+                ? payload.length_ratio
+                : Number(payload.length_ratio),
+          }
+        : payload
+    return request('/summarize/text', { method: 'POST', body: normalizedPayload, auth: true })
+  },
   file: (payload) => requestBinary('/summarize/file', { method: 'POST', body: payload, auth: true }),
 }
 
@@ -300,15 +676,30 @@ export const ocrApi = {
 }
 
 export const feedbacksApi = {
-  list: (params = {}) => request(`/feedbacks${buildQuery(params)}`),
-  criteria: (params = {}) => request(`/feedbacks/criteria${buildQuery(params)}`),
-  create: (payload) => request('/feedbacks', { method: 'POST', body: payload, auth: true }),
-  update: (id, payload) => request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true }),
-  remove: (id) => request(`/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+  list: (params = {}, force = false) => cachedRequest(`/feedbacks${buildQuery(params)}`, { force }, 60 * 1000),
+  criteria: (params = {}, force = false) => cachedRequest(`/feedbacks/criteria${buildQuery(params)}`, { force }, 10 * 60 * 1000),
+  create: async (payload) => {
+    const res = await request('/feedbacks', { method: 'POST', body: payload, auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
+  update: async (id, payload) => {
+    const res = await request(`/feedbacks/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
+  remove: async (id) => {
+    const res = await request(`/feedbacks/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/feedbacks')
+    clearApiCache('/admin/feedbacks')
+    return res
+  },
 }
 
 export const historyApi = {
-  list: (params = {}) => {
+  list: (params = {}, force = false) => {
     const query = new URLSearchParams()
 
     if (params.page) query.set('page', String(params.page))
@@ -318,52 +709,127 @@ export const historyApi = {
     }
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
-    return request(`/history${suffix}`, { auth: true })
+    return cachedRequest(`/history${suffix}`, { auth: true, force }, 20 * 1000)
   },
-  getById: (id) => request(`/history/${id}`, { auth: true }),
-  updateTitle: (id, title) => request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true }),
-  setBookmark: (id, isBookmarked) =>
-    request(`/history/${id}/bookmark`, {
+  getById: (id, force = false) => cachedRequest(`/history/${id}`, { auth: true, force }, 60 * 1000),
+  updateTitle: async (id, title) => {
+    const res = await request(`/history/${id}`, { method: 'PUT', body: { title }, auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  setBookmark: async (id, isBookmarked) => {
+    const res = await request(`/history/${id}/bookmark`, {
       method: 'PUT',
       body: { is_bookmarked: Boolean(isBookmarked) },
       auth: true,
-    }),
-  update: (id, payload) => request(`/history/${id}`, { method: 'PUT', body: payload, auth: true }),
-  removeAll: () => request('/history/all', { method: 'DELETE', auth: true }),
-  removeById: (id) => request(`/history/${id}`, { method: 'DELETE', auth: true }),
+    })
+    clearApiCache('/history')
+    return res
+  },
+  update: async (id, payload) => {
+    const res = await request(`/history/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  removeAll: async () => {
+    const res = await request('/history/all', { method: 'DELETE', auth: true })
+    clearApiCache('/history')
+    return res
+  },
+  moveToCollection: async (id, collectionId) => {
+    const res = await request(`/history/${id}/move`, {
+      method: 'PUT',
+      body: { collection_id: collectionId ? collectionId : null },
+      auth: true,
+    })
+    clearApiCache('/history')
+    clearApiCache('/collections')
+    return res
+  },
+  removeById: async (id) => {
+    const res = await request(`/history/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/history')
+    return res
+  },
 }
 
 export const collectionsApi = {
-  list: (params = {}) => request(`/collections${buildQuery(params)}`, { auth: true }),
-  create: (payload) => request('/collections', { method: 'POST', body: payload, auth: true }),
+  list: (params = {}, force = false) => cachedRequest(`/collections${buildQuery(params)}`, { auth: true, force }, 2 * 60 * 1000),
+  create: async (payload) => {
+    const res = await request('/collections', { method: 'POST', body: payload, auth: true })
+    clearApiCache('/collections')
+    return res
+  },
   getById: (id) => request(`/collections/${id}`, { auth: true }),
   getHistories: (id, params = {}) => request(`/collections/${id}/histories${buildQuery(params)}`, { auth: true }),
   getItems: (id, params = {}) => request(`/collections/${id}/items${buildQuery(params)}`, { auth: true }),
-  update: (id, payload) => request(`/collections/${id}`, { method: 'PUT', body: payload, auth: true }),
-  remove: (id) => request(`/collections/${id}`, { method: 'DELETE', auth: true }),
+  update: async (id, payload) => {
+    const res = await request(`/collections/${id}`, { method: 'PUT', body: payload, auth: true })
+    clearApiCache('/collections')
+    return res
+  },
+  remove: async (id) => {
+    const res = await request(`/collections/${id}`, { method: 'DELETE', auth: true })
+    clearApiCache('/collections')
+    return res
+  },
 }
 
 export const adminApi = {
   users: {
     list: (params = {}) => request(`/admin/users${buildQuery(params)}`, { auth: true }),
-    ban: (id, payload = {}) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload, auth: true }),
-    unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }),
+    ban: (id, payload = {}) => {
+      const reason =
+        typeof payload === 'string'
+          ? payload
+          : payload?.reason || payload?.ban_reason || payload?.banReason || ''
+      const body = {
+        reason,
+        ban_reason: reason,
+        ...(typeof payload === 'object' ? payload : {}),
+      }
+      return request(`/admin/users/${id}/ban`, { method: 'POST', body, auth: true })
+    },
+    unban: (id) =>
+      request(`/admin/users/${id}/unban`, { method: 'POST', auth: true }).catch((err) => {
+        if (err?.status === 404 || err?.status === 405) {
+          return request(`/admin/users/${id}/unban`, { method: 'PUT', auth: true }).catch(() => {
+            return request(`/admin/users/${id}/ban`, { method: 'DELETE', auth: true })
+          })
+        }
+        throw err
+      }),
   },
   subscriptions: {
-    list: () => request('/admin/subscriptions', { auth: true }),
-    create: (payload) => request('/admin/subscriptions', { method: 'POST', body: payload, auth: true }),
-    update: (id, payload) => request(`/admin/subscriptions/${id}`, { method: 'PUT', body: payload, auth: true }),
-    remove: (id) => request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true }),
+    list: (force = false) => cachedRequest('/admin/subscriptions', { auth: true, force }, 3 * 60 * 1000),
+    create: async (payload) => {
+      const res = await request('/admin/subscriptions', { method: 'POST', body: payload, auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
+    update: async (id, payload) => {
+      const res = await request(`/admin/subscriptions/${id}`, { method: 'PUT', body: payload, auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
+    remove: async (id) => {
+      const res = await request(`/admin/subscriptions/${id}`, { method: 'DELETE', auth: true })
+      clearApiCache('/subscriptions')
+      clearApiCache('/admin/subscriptions')
+      return res
+    },
   },
   feedbacks: {
-    list: ({ page, limit, rating, admin_replied } = {}) =>
+    list: ({ page, limit, rating, admin_replied, tag } = {}) =>
       request(
-        `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied })}`,
+        `/admin/feedbacks${buildQuery({ page, limit, rating, admin_replied, tag })}`,
         { auth: true },
       ),
-    replyTemplates: () => request('/admin/feedbacks/reply-templates', { auth: true }),
-    reply: (id, payload) =>
-      request(`/admin/feedbacks/${id}/reply`, {
+    replyTemplates: (force = false) => cachedRequest('/admin/feedbacks/reply-templates', { auth: true, force }, 10 * 60 * 1000),
+    reply: async (id, payload) => {
+      const res = await request(`/admin/feedbacks/${id}/reply`, {
         method: 'POST',
         body: {
           template_type: payload?.template_type,
@@ -371,10 +837,20 @@ export const adminApi = {
           admin_replied: payload?.admin_replied,
         },
         auth: true,
-      }),
-    remove: (id) => request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true }),
+      })
+      clearApiCache('/admin/feedbacks')
+      clearApiCache('/feedbacks')
+      return res
+    },
+    remove: async (id) => {
+      const res = await request(`/admin/feedbacks/${id}`, { method: 'DELETE', auth: true })
+      clearApiCache('/admin/feedbacks')
+      clearApiCache('/feedbacks')
+      return res
+    },
   },
   analytics: {
+    overview: (params = {}) => request(`/admin/analytics${buildQuery(params)}`, { auth: true }),
     users: (params = {}) => request(`/admin/analytics/users${buildQuery(params)}`, { auth: true }),
     requests: (params = {}) => request(`/admin/analytics/requests${buildQuery(params)}`, { auth: true }),
     fileFormats: (params = {}) => request(`/admin/analytics/file-formats${buildQuery(params)}`, { auth: true }),

@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { authApi, paymentsApi, sessionsApi } from '../utils/api'
 
 const initialProfile = {
@@ -11,11 +13,22 @@ const initialProfile = {
 
 function ProfilePage() {
   const { t, lang } = useLanguage()
+  const { user, refreshUser } = useAuth()
+  const hasRefreshedRef = useRef(false)
+  const [searchParams] = useSearchParams()
+  const paymentStatus = searchParams.get('status')
+  const paymentCode = searchParams.get('code')
+  const orderCode = searchParams.get('orderCode') || searchParams.get('order_code')
+  const isPaymentSuccess =
+    paymentStatus?.toUpperCase() === 'PAID' ||
+    paymentCode === '00' ||
+    searchParams.get('payment') === 'success'
+
   const [profile, setProfile] = useState(initialProfile)
   const [activeTab, setActiveTab] = useState('profile')
   const [formState, setFormState] = useState({
-    displayName: profile.displayName,
-    email: profile.email,
+    displayName: '',
+    email: '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
@@ -36,68 +49,29 @@ function ProfilePage() {
   const [cancelTxMessage, setCancelTxMessage] = useState('')
 
   useEffect(() => {
-    const loadProfile = async () => {
-      const token = localStorage.getItem('accessToken')
-      if (!token) {
-        setProfile(initialProfile)
-        setFormState((prev) => ({ ...prev, displayName: '', email: '' }))
-        return
-      }
-
-      try {
-        const response = await authApi.me()
-        const payload = response?.data || response || {}
-        const user = payload?.user || payload || {}
-
-        const normalizePlanValue = (value) => {
-          if (!value && value !== 0) return 'Free'
-          const normalized = String(value).trim().toLowerCase()
-          if (!normalized) return 'Free'
-          if (normalized.includes('max')) return 'Max'
-          if (normalized.includes('pro')) return 'Pro'
-          if (normalized.includes('free')) return 'Free'
-          return normalized.charAt(0).toUpperCase() + normalized.slice(1)
-        }
-
-        const resolvedPlan =
-          normalizePlanValue(payload?.current_tier) ||
-          normalizePlanValue(payload?.currentTier) ||
-          normalizePlanValue(user?.current_tier) ||
-          normalizePlanValue(user?.currentTier) ||
-          normalizePlanValue(payload?.subscription?.tier) ||
-          normalizePlanValue(user?.subscription?.tier) ||
-          normalizePlanValue(user?.tier) ||
-          normalizePlanValue(user?.plan) ||
-          'Free'
-
-        const nextProfile = {
-          displayName: user?.full_name || user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || '',
-          email: user?.email || '',
-          role: user?.role || 'Member',
-          plan: resolvedPlan,
-        }
-
-        setProfile(nextProfile)
-        setFormState((prev) => ({
-          ...prev,
-          displayName: nextProfile.displayName,
-          email: nextProfile.email,
-        }))
-      } catch {
-        setProfile(initialProfile)
-        setFormState((prev) => ({ ...prev, displayName: '', email: '' }))
-      }
+    // Chỉ gọi refresh nếu người dùng chuyển hướng từ luồng bên ngoài và chưa được refresh
+    if ((isPaymentSuccess || orderCode) && !hasRefreshedRef.current) {
+      hasRefreshedRef.current = true
+      refreshUser(true)
     }
+  }, [isPaymentSuccess, orderCode, refreshUser])
 
-    loadProfile()
-
-    const handleAuthUpdate = () => {
-      loadProfile()
+  useEffect(() => {
+    if (user) {
+      const nextProfile = {
+        displayName: user.displayName || user.fullName || user.email?.split('@')[0] || '',
+        email: user.email || '',
+        role: user.role || 'Member',
+        plan: user.plan || 'Free',
+      }
+      setProfile(nextProfile)
+      setFormState((prev) => ({
+        ...prev,
+        displayName: nextProfile.displayName,
+        email: nextProfile.email,
+      }))
     }
-
-    window.addEventListener('auth:updated', handleAuthUpdate)
-    return () => window.removeEventListener('auth:updated', handleAuthUpdate)
-  }, [])
+  }, [user])
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -418,6 +392,12 @@ function ProfilePage() {
       if (formState.newPassword && formState.newPassword.length < 8) {
         next.newPassword = t('profile.errors.newPassword')
       }
+      if (formState.newPassword && formState.newPassword.length > 72) {
+        next.newPassword = lang === 'vi' ? 'Mật khẩu mới không được vượt quá 72 ký tự.' : 'New password must not exceed 72 characters.'
+      }
+      if (formState.newPassword && formState.currentPassword && formState.newPassword === formState.currentPassword) {
+        next.newPassword = lang === 'vi' ? 'Mật khẩu mới không được trùng với mật khẩu hiện tại.' : 'New password cannot be the same as your current password.'
+      }
       if (formState.newPassword !== formState.confirmPassword) {
         next.confirmPassword = t('profile.errors.confirmPassword')
       }
@@ -445,6 +425,7 @@ function ProfilePage() {
     try {
       if (shouldUpdateName) {
         await authApi.updateProfile({ full_name: nextDisplayName })
+        await refreshUser(true)
       }
 
       if (shouldChangePassword) {
@@ -524,10 +505,32 @@ function ProfilePage() {
 
   return (
     <div className="space-y-6">
+      {isPaymentSuccess && (
+        <section className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-sm shadow-black/10">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-500/20 p-2 text-emerald-400">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-emerald-300">
+                {lang === 'vi' ? 'Thanh toán thành công!' : 'Payment Successful!'}
+              </h3>
+              <p className="mt-1 text-sm text-emerald-200/80">
+                {lang === 'vi'
+                  ? 'Gói dịch vụ và thông tin tài khoản của bạn đã được cập nhật thành công.'
+                  : 'Your subscription plan and account information have been updated successfully.'}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="overflow-hidden rounded-3xl border border-surface-border bg-surface-raised shadow-lg shadow-black/20">
-        <div className="grid gap-6 p-6 xl:grid-cols-[270px_minmax(0,1fr)]">
+        <div className="grid gap-6 p-4 sm:p-6 xl:grid-cols-[270px_minmax(0,1fr)]">
           <aside className="rounded-3xl border border-surface-border bg-surface-base/70 p-3">
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2">
               {menuItems.map((item) => {
                 const isActive = activeTab === item.key
                 return (
@@ -535,18 +538,18 @@ function ProfilePage() {
                     key={item.key}
                     type="button"
                     onClick={() => setActiveTab(item.key)}
-                    className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                    className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
                       isActive
                         ? 'border-accent/40 bg-accent/10 text-white shadow-sm shadow-accent/10'
                         : 'border-transparent bg-transparent text-slate-400 hover:border-surface-border hover:bg-surface-elevated hover:text-slate-200'
                     }`}
                   >
-                    <span className={`mt-0.5 rounded-xl p-2 ${isActive ? 'bg-accent/20 text-accent' : 'bg-surface-elevated text-slate-500'}`}>
+                    <span className={`mt-0.5 rounded-xl p-2 shrink-0 ${isActive ? 'bg-accent/20 text-accent' : 'bg-surface-elevated text-slate-500'}`}>
                       {item.icon}
                     </span>
-                    <span>
-                      <span className="block text-sm font-semibold">{item.label}</span>
-                      <span className="mt-1 block text-xs text-slate-500">{item.description}</span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold truncate">{item.label}</span>
+                      <span className="mt-0.5 block text-xs text-slate-500 line-clamp-1 sm:line-clamp-2">{item.description}</span>
                     </span>
                   </button>
                 )
@@ -655,12 +658,12 @@ function ProfilePage() {
                   <div className="rounded-3xl bg-slate-900/80 p-5 text-sm text-slate-300">
                     <p className="font-semibold text-white">{t('profile.upgradePlan')}</p>
                     <p className="mt-2 text-slate-400">{lang === 'vi' ? 'Mở khóa phân tích AI và hỗ trợ ưu tiên.' : 'Unlock AI usage insights and priority support.'}</p>
-                    <button
-                      type="button"
-                      className="mt-4 w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
+                    <Link
+                      to="/pricing"
+                      className="mt-4 block w-full text-center rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover shadow-lg shadow-accent/20"
                     >
                       {t('profile.upgradePlan')}
-                    </button>
+                    </Link>
                   </div>
                 </aside>
               </div>
@@ -702,28 +705,34 @@ function ProfilePage() {
                       const isCurrent = Boolean(session?.is_current || session?.current)
 
                       return (
-                        <div key={sessionId} className="flex items-center justify-between rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
-                          <div>
-                            <p className="font-medium text-white">
-                              {getSessionName(session)}
+                        <div key={sessionId} className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface-base/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-white">
+                                {getSessionName(session)}
+                              </p>
                               {isCurrent && (
-                                <span className="ml-2 rounded-lg bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                <span className="rounded-lg bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
                                   {lang === 'vi' ? 'Hiện tại' : 'Current'}
                                 </span>
                               )}
+                            </div>
+                            <p className="mt-1 text-xs text-slate-400 sm:text-sm break-words line-clamp-2" title={getSessionDetail(session)}>
+                              {getSessionDetail(session)}
                             </p>
-                            <p className="text-sm text-slate-500">{getSessionDetail(session)}</p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRevokeSession(sessionId)}
-                            disabled={isCurrent || sessionActionLoading === sessionId}
-                            className="text-sm text-accent transition hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {sessionActionLoading === sessionId
-                              ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
-                              : (lang === 'vi' ? 'Đăng xuất' : 'Log out')}
-                          </button>
+                          {!isCurrent && (
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeSession(sessionId)}
+                              disabled={sessionActionLoading === sessionId}
+                              className="self-start sm:self-center shrink-0 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {sessionActionLoading === sessionId
+                                ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                                : (lang === 'vi' ? 'Đăng xuất phiên này' : 'Log out')}
+                            </button>
+                          )}
                         </div>
                       )
                     })
@@ -753,7 +762,7 @@ function ProfilePage() {
                     {t('profile.activity.empty')}
                   </div>
                 ) : (
-                  <div className="relative space-y-4 pl-7 before:absolute before:bottom-0 before:left-2.5 before:top-1 before:w-px before:bg-surface-border">
+                  <div className="relative space-y-4 pl-6 sm:pl-7 before:absolute before:bottom-0 before:left-2 before:top-1 before:w-px before:bg-surface-border sm:before:left-2.5">
                     {activityItems.map((item) => {
                       const dotClass =
                         item.type === 'payment-success'
@@ -767,14 +776,14 @@ function ProfilePage() {
                                 : 'bg-slate-400'
 
                       return (
-                        <article key={item.id} className="relative rounded-2xl border border-surface-border bg-surface-base/70 px-4 py-3">
-                          <span className={`absolute -left-[26px] top-4 h-3 w-3 rounded-full ring-4 ring-surface-raised ${dotClass}`} />
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold text-white">{item.title}</p>
-                              <p className="mt-1 text-sm text-slate-400">{item.description}</p>
+                        <article key={item.id} className="relative rounded-2xl border border-surface-border bg-surface-base/70 p-4">
+                          <span className={`absolute -left-[22px] sm:-left-[26px] top-4 h-3 w-3 rounded-full ring-4 ring-surface-raised ${dotClass}`} />
+                          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-white break-words">{item.title}</p>
+                              <p className="mt-1 text-xs text-slate-400 sm:text-sm break-words">{item.description}</p>
                             </div>
-                            <span className="text-xs text-slate-500">{formatActivityTime(item.at)}</span>
+                            <span className="shrink-0 text-xs text-slate-500">{formatActivityTime(item.at)}</span>
                           </div>
                         </article>
                       )

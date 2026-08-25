@@ -39,6 +39,15 @@ function getHistoryBookmark(item) {
   return Boolean(item?.is_bookmarked ?? item?.isBookmarked ?? item?.bookmarked ?? false)
 }
 
+function getHistoryCollectionId(item) {
+  if (item?.collection_id) return item.collection_id
+  if (item?.collectionId) return item.collectionId
+  if (item?.collection && typeof item.collection === 'object' && item.collection.id) {
+    return item.collection.id
+  }
+  return null
+}
+
 function normalizeHistoryListResponse(raw) {
   const payload = raw?.data || raw
 
@@ -145,6 +154,16 @@ function HistoryOverlay() {
   const [editTitle, setEditTitle] = useState('')
   const [actionLoadingId, setActionLoadingId] = useState('')
   const [clearingAll, setClearingAll] = useState(false)
+
+  const [movingItem, setMovingItem] = useState(null)
+  const movingItemRef = useRef(null)
+  movingItemRef.current = movingItem
+  const [selectedTargetCollectionId, setSelectedTargetCollectionId] = useState('')
+  const [quickNewCollectionName, setQuickNewCollectionName] = useState('')
+  const [isCreatingQuickCollection, setIsCreatingQuickCollection] = useState(false)
+  const [moveLoading, setMoveLoading] = useState(false)
+  const [moveError, setMoveError] = useState('')
+  const [moveSuccessMessage, setMoveSuccessMessage] = useState('')
 
   const isLoggedIn = Boolean(localStorage.getItem('accessToken'))
 
@@ -272,7 +291,11 @@ function HistoryOverlay() {
   const createCollection = async () => {
     const trimmed = newCollectionName.trim()
     if (!trimmed) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được để trống.' : 'Collection name cannot be empty.')
+      return
+    }
+    if (trimmed.length > 100) {
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được vượt quá 100 ký tự.' : 'Collection name must not exceed 100 characters.')
       return
     }
 
@@ -331,17 +354,11 @@ function HistoryOverlay() {
 
     const trimmed = editingCollectionName.trim()
     if (!trimmed) {
-      setCollectionValidationError(lang === 'vi' ? 'Vui lòng nhập tên collection.' : 'Please enter a collection name.')
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được để trống.' : 'Collection name cannot be empty.')
       return
     }
-
-    const hasDuplicate = collections.some(
-      (item) => item.id !== collection.id && String(item?.name || '').trim().toLowerCase() === trimmed.toLowerCase(),
-    )
-    if (hasDuplicate) {
-      setCollectionValidationError(
-        lang === 'vi' ? 'Vui lòng nhập một tên collection khác.' : 'Please enter a different collection name.',
-      )
+    if (trimmed.length > 100) {
+      setCollectionValidationError(lang === 'vi' ? 'Tên thư mục không được vượt quá 100 ký tự.' : 'Collection name must not exceed 100 characters.')
       return
     }
 
@@ -391,13 +408,22 @@ function HistoryOverlay() {
 
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === 'Escape' && isHistoryOpen) {
-        closeHistory()
+      if (e.key === 'Escape') {
+        if (movingItemRef.current) {
+          setMovingItem(null)
+          setSelectedTargetCollectionId('')
+          setQuickNewCollectionName('')
+          setIsCreatingQuickCollection(false)
+          setMoveError('')
+          setMoveSuccessMessage('')
+        } else if (isHistoryOpen) {
+          closeHistory()
+        }
       }
     }
 
     const handleHistoryUpdate = () => {
-      if (isLoggedIn) {
+      if (isLoggedIn && isHistoryOpen) {
         loadHistoryList(page)
         loadCollections()
       }
@@ -415,11 +441,9 @@ function HistoryOverlay() {
         setSelectedItem(null)
         setError(t('historyOverlay.loginRequired'))
       } else {
-        loadHistoryList(1)
         loadCollections()
+        loadHistoryList(page)
       }
-
-      setPage(1)
     }
 
     return () => {
@@ -427,12 +451,7 @@ function HistoryOverlay() {
       document.removeEventListener('keydown', handleEscape)
       document.body.style.overflow = 'unset'
     }
-  }, [isHistoryOpen, closeHistory, isLoggedIn, t, page])
-
-  useEffect(() => {
-    if (!isHistoryOpen || !isLoggedIn) return
-    loadHistoryList(page)
-  }, [page, isHistoryOpen, isLoggedIn])
+  }, [isHistoryOpen, page, isLoggedIn])
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -682,6 +701,143 @@ function HistoryOverlay() {
     }
   }
 
+  const handleOpenMoveModal = (item, index) => {
+    const id = getHistoryId(item, index)
+    const currentCollId = getHistoryCollectionId(item)
+    let initialCollId = currentCollId || ''
+    if (!initialCollId) {
+      const collName = getHistoryCollection(item)
+      if (collName && collName !== DEFAULT_COLLECTION_NAME) {
+        const found = collections.find((c) => c.name === collName || c.title === collName)
+        if (found?.id) initialCollId = found.id
+      }
+    }
+    setMovingItem({ ...item, _resolvedId: id })
+    setSelectedTargetCollectionId(initialCollId)
+    setQuickNewCollectionName('')
+    setIsCreatingQuickCollection(false)
+    setMoveError('')
+    setMoveSuccessMessage('')
+  }
+
+  const handleCloseMoveModal = () => {
+    if (moveLoading) return
+    setMovingItem(null)
+    setSelectedTargetCollectionId('')
+    setQuickNewCollectionName('')
+    setIsCreatingQuickCollection(false)
+    setMoveError('')
+    setMoveSuccessMessage('')
+  }
+
+  const handleQuickCreateAndSelect = async () => {
+    const trimmed = quickNewCollectionName.trim()
+    if (!trimmed) {
+      setMoveError(lang === 'vi' ? 'Tên thư mục không được để trống.' : 'Collection name cannot be empty.')
+      return
+    }
+    if (trimmed.length > 100) {
+      setMoveError(lang === 'vi' ? 'Tên thư mục không được vượt quá 100 ký tự.' : 'Collection name must not exceed 100 characters.')
+      return
+    }
+
+    setMoveLoading(true)
+    setMoveError('')
+    try {
+      const createRes = await collectionsApi.create({ name: trimmed, title: trimmed })
+      const createdItem = createRes?.data || createRes?.collection || createRes?.item || createRes || {}
+      const newId = createdItem?.id || createdItem?._id || createdItem?.collection_id
+
+      await loadCollections()
+
+      if (newId) {
+        setSelectedTargetCollectionId(newId)
+      } else {
+        const refreshedList = await collectionsApi.list({ page: 1, limit: 100 })
+        const payload = refreshedList?.data || refreshedList || {}
+        const raw = payload?.items || payload?.collections || (Array.isArray(payload) ? payload : [])
+        const matched = raw.find((c) => (c.name || c.title) === trimmed)
+        if (matched?.id) {
+          setSelectedTargetCollectionId(matched.id)
+        }
+      }
+      setIsCreatingQuickCollection(false)
+      setQuickNewCollectionName('')
+    } catch (err) {
+      setMoveError(err?.message || (lang === 'vi' ? 'Không thể tạo bộ sưu tập mới.' : 'Unable to create collection.'))
+    } finally {
+      setMoveLoading(false)
+    }
+  }
+
+  const handleConfirmMove = async () => {
+    if (!movingItem) return
+    const id = movingItem._resolvedId || getHistoryId(movingItem, 0)
+    if (!id) return
+
+    setMoveLoading(true)
+    setMoveError('')
+
+    try {
+      if (String(id).startsWith('local-')) {
+        const localCollections = readLocalCollectionData()
+        const targetColl = collections.find((c) => c.id === selectedTargetCollectionId)
+        const targetCollName = targetColl?.name || DEFAULT_COLLECTION_NAME
+
+        let foundEntry = null
+        for (const [colName, entries] of Object.entries(localCollections)) {
+          if (!Array.isArray(entries)) continue
+          const idx = entries.findIndex((e) => e.id === id)
+          if (idx !== -1) {
+            foundEntry = { ...entries[idx], collection: targetCollName }
+            entries.splice(idx, 1)
+          }
+        }
+
+        if (foundEntry) {
+          if (!localCollections[targetCollName]) {
+            localCollections[targetCollName] = []
+          }
+          localCollections[targetCollName].push(foundEntry)
+          localStorage.setItem('vietnamese-summarizer-collections', JSON.stringify(localCollections))
+        }
+
+        setItems((current) =>
+          current.map((entry) =>
+            getHistoryId(entry, 0) === id
+              ? { ...entry, collection: targetCollName, collection_id: selectedTargetCollectionId || null }
+              : entry,
+          ),
+        )
+      } else {
+        await historyApi.moveToCollection(id, selectedTargetCollectionId || null)
+      }
+
+      setMoveSuccessMessage(t('historyOverlay.moveSuccess'))
+
+      await Promise.all([
+        loadHistoryList(page),
+        loadCollections(),
+      ])
+
+      if (activeTab === 'collection-detail' && selectedCollectionId) {
+        await loadCollectionDetail(selectedCollectionId, selectedCollectionPage)
+      }
+
+      if (selectedId === id) {
+        await loadHistoryDetail(id)
+      }
+
+      setTimeout(() => {
+        handleCloseMoveModal()
+      }, 400)
+    } catch (err) {
+      setMoveError(err?.message || t('historyOverlay.errors.moveItem'))
+    } finally {
+      setMoveLoading(false)
+    }
+  }
+
   const filteredCollections = useMemo(() => {
     const query = collectionSearch.trim().toLowerCase()
     const list = [...collections]
@@ -819,11 +975,21 @@ function HistoryOverlay() {
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p className="text-xs text-slate-500">{formatDate(getHistoryCreatedAt(item), lang)}</p>
-                      {!isCollectionView && (
-                        <span className="rounded-full border border-surface-border bg-surface-base px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-300">
-                          {collectionName}
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleOpenMoveModal(item, index)
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full border border-surface-border bg-surface-base/80 px-2 py-0.5 text-[10px] font-medium tracking-wide text-slate-300 transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent"
+                        title={t('historyOverlay.moveCollection')}
+                      >
+                        <span className="text-[10px]">📁</span>
+                        <span className="max-w-[110px] truncate">{collectionName}</span>
+                        <svg className="h-2.5 w-2.5 opacity-60 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
                     </div>
                     {selectedId === id && (
                       <div className="mt-3 rounded-lg border border-surface-border/40 bg-surface-base/50 px-3 py-2">
@@ -904,18 +1070,16 @@ function HistoryOverlay() {
     <>
       {isHistoryOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity duration-300"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
           onClick={closeHistory}
-          style={{ top: '60px', bottom: '48px' }}
         />
       )}
 
       <div
         ref={overlayRef}
-        className={`fixed right-0 z-50 w-1/5 transform transition-transform duration-300 ease-out bg-surface-raised/80 border-l border-surface-border/50 backdrop-blur-xl shadow-2xl shadow-black/30 flex flex-col ${
+        className={`fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-full flex-col border-l border-surface-border/60 bg-surface-raised/95 shadow-2xl shadow-black/50 backdrop-blur-2xl transition-transform duration-300 ease-out sm:w-[420px] sm:max-w-md md:w-[460px] ${
           isHistoryOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{ top: '60px', bottom: '48px' }}
       >
         <div className="flex items-center justify-between border-b border-surface-border/30 px-5 py-4">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wider">
@@ -1289,6 +1453,188 @@ function HistoryOverlay() {
           </button>
         </div>
       </div>
+
+      {/* Move to Collection Modal */}
+      {movingItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          onClick={handleCloseMoveModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-surface-border/80 bg-surface-raised/95 p-5 shadow-2xl backdrop-blur-xl sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-surface-border/40 pb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <span className="text-base">📂</span>
+                  <span>{t('historyOverlay.moveToCollectionTitle')}</span>
+                </div>
+                <p className="mt-1 truncate text-xs text-slate-400">
+                  {getHistoryTitle(movingItem) || t('historyOverlay.untitled')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseMoveModal}
+                disabled={moveLoading}
+                className="rounded-lg p-1 text-slate-400 transition hover:bg-surface-base hover:text-white disabled:opacity-50"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Notifications */}
+            {moveError && (
+              <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                {moveError}
+              </div>
+            )}
+            {moveSuccessMessage && (
+              <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                {moveSuccessMessage}
+              </div>
+            )}
+
+            {/* Collection Selection */}
+            <div className="mt-4">
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                {t('historyOverlay.selectTargetCollection')}
+              </label>
+
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {/* Default / Uncategorized Option */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedTargetCollectionId('')}
+                  className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition ${
+                    selectedTargetCollectionId === ''
+                      ? 'border-accent bg-accent/10 text-white'
+                      : 'border-surface-border/40 bg-surface-base/40 text-slate-300 hover:border-surface-border hover:bg-surface-base/80'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-sm">⚪</span>
+                    <span className="truncate text-xs font-medium">{t('historyOverlay.noCollectionDefault')}</span>
+                  </div>
+                  {selectedTargetCollectionId === '' && (
+                    <span className="shrink-0 text-xs font-bold text-accent">✓</span>
+                  )}
+                </button>
+
+                {/* User Collections */}
+                {collections.map((coll) => {
+                  const isSelected = selectedTargetCollectionId === coll.id
+                  return (
+                    <button
+                      key={coll.id}
+                      type="button"
+                      onClick={() => setSelectedTargetCollectionId(coll.id)}
+                      className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition ${
+                        isSelected
+                          ? 'border-accent bg-accent/10 text-white'
+                          : 'border-surface-border/40 bg-surface-base/40 text-slate-300 hover:border-surface-border hover:bg-surface-base/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-sm">📁</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium">{coll.name}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {coll.count || 0} {t('historyOverlay.collectionCount')}
+                          </p>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <span className="shrink-0 text-xs font-bold text-accent">✓</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Quick Create Collection Inline */}
+            <div className="mt-4 border-t border-surface-border/40 pt-3">
+              {!isCreatingQuickCollection ? (
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingQuickCollection(true)}
+                  className="flex items-center gap-1.5 text-xs font-medium text-accent transition hover:underline"
+                >
+                  <span>+</span>
+                  <span>{t('historyOverlay.quickCreateCollection')}</span>
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={quickNewCollectionName}
+                      onChange={(e) => setQuickNewCollectionName(e.target.value)}
+                      placeholder={t('historyOverlay.quickCreatePlaceholder')}
+                      className="flex-1 rounded-lg border border-surface-border bg-surface-base px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 outline-none focus:border-accent"
+                      maxLength={100}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={handleQuickCreateAndSelect}
+                      disabled={moveLoading || !quickNewCollectionName.trim()}
+                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-base transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {t('historyOverlay.save')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingQuickCollection(false)
+                        setQuickNewCollectionName('')
+                      }}
+                      className="rounded-lg px-2 py-1.5 text-xs text-slate-400 transition hover:bg-surface-base hover:text-white"
+                    >
+                      {t('historyOverlay.cancel')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-surface-border/40 pt-3">
+              <button
+                type="button"
+                onClick={handleCloseMoveModal}
+                disabled={moveLoading}
+                className="rounded-xl border border-surface-border/60 bg-surface-base/50 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface-base hover:text-white disabled:opacity-50"
+              >
+                {t('historyOverlay.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmMove}
+                disabled={moveLoading}
+                className="flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-surface-base shadow-lg shadow-accent/20 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {moveLoading ? (
+                  <>
+                    <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <span>{t('historyOverlay.moving')}</span>
+                  </>
+                ) : (
+                  <span>{t('historyOverlay.move')}</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
 
 function PaymentCancelPage() {
@@ -17,6 +18,20 @@ function PaymentCancelPage() {
             ? 'Giao dịch chưa được hoàn tất. Bạn có thể quay lại trang bảng giá để thử lại bất kỳ lúc nào.'
             : 'The transaction was not completed. You can return to the pricing page and try again anytime.'}
         </p>
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <Link
+            to="/pricing"
+            className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover"
+          >
+            {lang === 'vi' ? 'Quay lại Bảng giá' : 'Back to Pricing'}
+          </Link>
+          <Link
+            to="/"
+            className="rounded-xl border border-surface-border px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-base/60"
+          >
+            {lang === 'vi' ? 'Trang chủ' : 'Home'}
+          </Link>
+        </div>
       </section>
     </div>
   )

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
-import { adminApi } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
+import { adminApi, feedbacksApi } from '../utils/api'
 
 const navItems = [
   { id: 'analyticsReports', labelKey: 'nav.overview' },
@@ -22,7 +23,33 @@ const PIE_COLORS = [
   '#f97316', // Orange
 ]
 
-function FileFormatPieChart({ data = [], lang, formatMetric }) {
+function formatFileFormatName(format, lang = 'vi') {
+  const norm = String(format || '').toLowerCase().trim()
+  if (norm === 'text_direct' || norm === 'text') return lang === 'vi' ? 'Văn bản trực tiếp' : 'Direct text'
+  if (norm === 'pdf') return 'PDF'
+  if (norm === 'docx' || norm === 'doc') return 'DOCX'
+  if (norm === 'txt') return 'TXT'
+  if (norm === 'image' || norm === 'png' || norm === 'jpg' || norm === 'jpeg') return lang === 'vi' ? 'Hình ảnh' : 'Image'
+  if (norm === 'other') return lang === 'vi' ? 'Khác' : 'Other'
+  return format.toUpperCase()
+}
+
+function formatTierName(tier, lang = 'vi') {
+  const norm = String(tier || '').toLowerCase().trim()
+  if (norm === 'free') return lang === 'vi' ? 'Gói Miễn phí (Free)' : 'Free'
+  if (norm === 'pro') return lang === 'vi' ? 'Gói Nâng cao (Pro)' : 'Pro'
+  if (norm === 'max' || norm === 'premium' || norm === 'vip') return lang === 'vi' ? 'Gói Cao cấp (Max)' : 'Max'
+  return tier.toUpperCase()
+}
+
+function DonutPieChart({
+  data = [],
+  lang,
+  formatMetric,
+  centerLabel,
+  compact = false,
+  emptyText,
+}) {
   const [hoveredIndex, setHoveredIndex] = useState(null)
 
   const total = useMemo(() => {
@@ -31,63 +58,72 @@ function FileFormatPieChart({ data = [], lang, formatMetric }) {
 
   if (!data.length || total === 0) {
     return (
-      <p className="mt-3 text-xs text-slate-500">
-        {lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}
-      </p>
+      <div className="flex flex-col items-center justify-center p-6 text-center">
+        <div className="h-24 w-24 rounded-full border-2 border-dashed border-surface-border flex items-center justify-center text-xs text-slate-500 mb-2">
+          0
+        </div>
+        <p className="text-xs text-slate-500">
+          {emptyText || (lang === 'vi' ? 'Chưa có dữ liệu.' : 'No data available.')}
+        </p>
+      </div>
     )
   }
 
-  // Calculate slice angles
   let currentAngle = 0
   const slices = data.map((item, index) => {
     const value = Number(item.value) || 0
-    const percentage = (value / total) * 100
-    const angle = (value / total) * 360
+    const percentage = item.percentage !== undefined && item.percentage !== null
+      ? Number(item.percentage)
+      : (total > 0 ? (value / total) * 100 : 0)
+    const angle = total > 0 ? (value / total) * 360 : 0
     const startAngle = currentAngle
     const endAngle = currentAngle + angle
     currentAngle += angle
 
-    // SVG arc calculation (radius: 70, center: 100, 100)
     const rad = (deg) => ((deg - 90) * Math.PI) / 180
-    const x1 = 100 + 70 * Math.cos(rad(startAngle))
-    const y1 = 100 + 70 * Math.sin(rad(startAngle))
-    const x2 = 100 + 70 * Math.cos(rad(endAngle))
-    const y2 = 100 + 70 * Math.sin(rad(endAngle))
+    const outerR = compact ? 56 : 70
+    const innerR = compact ? 34 : 45
+    const cx = 100
+    const cy = 100
+
+    const x1 = cx + outerR * Math.cos(rad(startAngle))
+    const y1 = cy + outerR * Math.sin(rad(startAngle))
+    const x2 = cx + outerR * Math.cos(rad(endAngle))
+    const y2 = cy + outerR * Math.sin(rad(endAngle))
     const largeArc = angle > 180 ? 1 : 0
 
-    // Inner radius for donut hole (45)
-    const ix1 = 100 + 45 * Math.cos(rad(endAngle))
-    const iy1 = 100 + 45 * Math.sin(rad(endAngle))
-    const ix2 = 100 + 45 * Math.cos(rad(startAngle))
-    const iy2 = 100 + 45 * Math.sin(rad(startAngle))
+    const ix1 = cx + innerR * Math.cos(rad(endAngle))
+    const iy1 = cy + innerR * Math.sin(rad(endAngle))
+    const ix2 = cx + innerR * Math.cos(rad(startAngle))
+    const iy2 = cy + innerR * Math.sin(rad(startAngle))
 
     const pathData = data.length === 1
-      ? `M 100 30 A 70 70 0 1 1 99.99 30 M 100 55 A 45 45 0 1 0 100.01 55`
-      : `M ${x1} ${y1} A 70 70 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A 45 45 0 ${largeArc} 0 ${ix2} ${iy2} Z`
+      ? `M ${cx} ${cy - outerR} A ${outerR} ${outerR} 0 1 1 ${cx - 0.01} ${cy - outerR} M ${cx} ${cy - innerR} A ${innerR} ${innerR} 0 1 0 ${cx + 0.01} ${cy - innerR}`
+      : `M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix2} ${iy2} Z`
 
     return {
       ...item,
       percentage,
       pathData,
-      color: PIE_COLORS[index % PIE_COLORS.length],
+      color: item.color || PIE_COLORS[index % PIE_COLORS.length],
     }
   })
 
   const activeSlice = hoveredIndex !== null ? slices[hoveredIndex] : null
 
   return (
-    <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-around">
-      {/* SVG Donut / Pie Chart */}
-      <div className="relative flex items-center justify-center">
+    <div className={`mt-2 flex flex-col items-center gap-4 ${compact ? 'w-full' : 'sm:flex-row sm:items-center sm:justify-around'}`}>
+      {/* SVG Donut */}
+      <div className="relative flex items-center justify-center shrink-0">
         <svg
           viewBox="0 0 200 200"
-          className="h-48 w-48 drop-shadow-md sm:h-56 sm:w-56"
+          className={`${compact ? 'h-36 w-36' : 'h-44 w-44 sm:h-52 sm:w-52'} drop-shadow-md`}
         >
           {slices.map((slice, index) => {
             const isHovered = hoveredIndex === index
             return (
               <path
-                key={slice.label}
+                key={`${slice.label}-${index}`}
                 d={slice.pathData}
                 fill={slice.color}
                 className="cursor-pointer transition-all duration-200 hover:opacity-90"
@@ -102,61 +138,61 @@ function FileFormatPieChart({ data = [], lang, formatMetric }) {
           })}
         </svg>
 
-        {/* Center label (Donut hole info) */}
-        <div className="pointer-events-none absolute flex flex-col items-center justify-center text-center">
+        {/* Center label */}
+        <div className="pointer-events-none absolute flex flex-col items-center justify-center text-center px-1">
           {activeSlice ? (
             <>
-              <span className="text-xs font-semibold uppercase text-slate-300">
+              <span className="text-[10px] font-semibold uppercase text-slate-300 truncate max-w-[70px]">
                 {activeSlice.label}
               </span>
-              <span className="text-sm font-bold text-white">
+              <span className="text-xs font-bold text-white">
                 {activeSlice.percentage.toFixed(1)}%
               </span>
-              <span className="text-[11px] text-slate-400">
-                {formatMetric(activeSlice.value)}
+              <span className="text-[10px] text-slate-400">
+                {formatMetric ? formatMetric(activeSlice.value) : activeSlice.value}
               </span>
             </>
           ) : (
             <>
-              <span className="text-[11px] uppercase tracking-wider text-slate-400">
-                {lang === 'vi' ? 'Tổng tệp' : 'Total'}
+              <span className="text-[10px] uppercase tracking-wider text-slate-400">
+                {centerLabel || (lang === 'vi' ? 'Tổng' : 'Total')}
               </span>
-              <span className="text-base font-bold text-white">
-                {formatMetric(total)}
+              <span className="text-sm font-bold text-white">
+                {formatMetric ? formatMetric(total) : total}
               </span>
             </>
           )}
         </div>
       </div>
 
-      {/* Breakdown / Legend List */}
-      <div className="w-full flex-1 space-y-2.5 max-w-sm">
+      {/* Legend list */}
+      <div className={`w-full space-y-1.5 ${compact ? 'max-w-full' : 'flex-1 max-w-sm min-w-0'}`}>
         {slices.map((slice, index) => {
           const isHovered = hoveredIndex === index
           return (
             <div
-              key={slice.label}
+              key={`${slice.label}-${index}`}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
-              className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs transition-all cursor-pointer ${
+              className={`flex items-center justify-between rounded-xl border px-2.5 py-1.5 text-xs transition-all cursor-pointer ${
                 isHovered
                   ? 'border-accent bg-surface-base/90 shadow-sm'
                   : 'border-surface-border/70 bg-surface-base/50 hover:border-slate-500'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2 min-w-0">
                 <span
-                  className="h-3 w-3 rounded-full flex-shrink-0"
+                  className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: slice.color }}
                 />
-                <span className="font-semibold text-slate-200">{slice.label}</span>
+                <span className="font-medium text-slate-200 truncate">{slice.label}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                 <span className="text-slate-400">
-                  {formatMetric(slice.value)}
+                  {formatMetric ? formatMetric(slice.value) : slice.value}
                 </span>
                 <span
-                  className="font-bold min-w-[45px] text-right"
+                  className="font-bold min-w-[42px] text-right"
                   style={{ color: slice.color }}
                 >
                   {slice.percentage.toFixed(1)}%
@@ -351,20 +387,63 @@ function deepFindObject(source, aliases = []) {
   return null
 }
 
-function getFeedbackComment(feedback, lang) {
+function getFeedbackTags(feedback, t) {
+  const rawList = []
+
+  const pushCandidate = (val) => {
+    if (!val) return
+    if (Array.isArray(val)) {
+      val.forEach(pushCandidate)
+    } else if (typeof val === 'string' && val.trim()) {
+      rawList.push(val.trim())
+    } else if (typeof val === 'object') {
+      const code = val.code || val.id || val.tag || val.label || val.name || ''
+      if (code) rawList.push(String(code).trim())
+    }
+  }
+
+  pushCandidate(feedback?.tags)
+  pushCandidate(feedback?.tag)
+  pushCandidate(feedback?.criteria)
+  pushCandidate(feedback?.reasons)
+  pushCandidate(feedback?.reason_codes)
+  pushCandidate(feedback?.reasonCodes)
+  pushCandidate(feedback?.reason)
+  pushCandidate(feedback?.payload?.tags)
+  pushCandidate(feedback?.payload?.tag)
+  pushCandidate(feedback?.payload?.criteria)
+  pushCandidate(feedback?.payload?.reasons)
+  pushCandidate(feedback?.payload?.reason)
+  pushCandidate(feedback?.feedback?.tags)
+  pushCandidate(feedback?.feedback?.tag)
+
+  const uniqueCodes = Array.from(new Set(rawList.filter(Boolean)))
+
+  return uniqueCodes.map((tagCode) => {
+    const translatedTag = t ? t(`feedback.reasons.${tagCode}`) : ''
+    const displayTag =
+      translatedTag && translatedTag !== `feedback.reasons.${tagCode}`
+        ? translatedTag
+        : tagCode
+    return { code: tagCode, label: displayTag }
+  })
+}
+
+function getFeedbackUserComment(feedback) {
   const candidates = [
+    feedback?.comment,
     feedback?.content,
     feedback?.message,
-    feedback?.comment,
     feedback?.feedback_content,
     feedback?.feedbackContent,
     feedback?.details,
     feedback?.description,
-    feedback?.reason,
     feedback?.text,
     feedback?.body,
+    feedback?.payload?.comment,
     feedback?.payload?.content,
     feedback?.payload?.message,
+    feedback?.feedback?.comment,
     feedback?.feedback?.content,
     feedback?.feedback?.message,
   ]
@@ -374,6 +453,13 @@ function getFeedbackComment(feedback, lang) {
       return value.trim()
     }
   }
+
+  return ''
+}
+
+function getFeedbackComment(feedback, lang) {
+  const comment = getFeedbackUserComment(feedback)
+  if (comment) return comment
 
   const reasonList =
     feedback?.reasons ||
@@ -526,10 +612,59 @@ function getFeedbackExistingReply(feedback, templates = []) {
 }
 
 function getFeedbackRatingLabel(rating, t) {
+  const num = Number(rating)
+  if (Number.isFinite(num) && num >= 1 && num <= 5) {
+    return `${num} ★`
+  }
   const normalized = String(rating || '').trim().toLowerCase()
-  if (normalized === 'like') return t('dashboard.feedbackModerationUi.like')
-  if (normalized === 'dislike') return t('dashboard.feedbackModerationUi.dislike')
-  return rating || '-'
+  if (normalized === 'like') return '5 ★'
+  if (normalized === 'dislike') return '1 ★'
+  return rating ? `${rating} ★` : '-'
+}
+
+function getFeedbackAuthorName(feedback, lang = 'vi') {
+  const directCandidates = [
+    feedback?.user_name,
+    feedback?.userName,
+    feedback?.full_name,
+    feedback?.fullName,
+    feedback?.name,
+    feedback?.author_name,
+    feedback?.authorName,
+    feedback?.user?.name,
+    feedback?.user?.full_name,
+    feedback?.user?.fullName,
+    feedback?.user?.username,
+    feedback?.author?.name,
+    feedback?.author?.full_name,
+    feedback?.author?.fullName,
+    feedback?.author?.username,
+  ]
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  const emailCandidates = [
+    feedback?.user?.email,
+    feedback?.author?.email,
+    feedback?.email,
+    feedback?.user_email,
+    feedback?.userEmail,
+  ]
+
+  for (const email of emailCandidates) {
+    if (typeof email === 'string' && email.trim()) {
+      const cleanEmail = email.trim()
+      const prefix = cleanEmail.split('@')[0]
+      if (prefix) return prefix
+      return cleanEmail
+    }
+  }
+
+  return lang === 'vi' ? 'Khách ẩn danh' : 'Anonymous User'
 }
 
 function getFeedbackUserEmail(feedback) {
@@ -570,6 +705,7 @@ function getDefaultDateRange() {
 
 function DashboardPage() {
   const { t, lang } = useLanguage()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [activeNav, setActiveNav] = useState('analyticsReports')
 
@@ -578,14 +714,20 @@ function DashboardPage() {
   const [toDate, setToDate] = useState(dateRange.end)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState('')
-  const [analyticsData, setAnalyticsData] = useState({ users: null, requests: null, fileFormats: null, activeUsers: null })
-
+  const [analyticsData, setAnalyticsData] = useState(null)
   const [usersLoading, setUsersLoading] = useState(false)
   const [usersError, setUsersError] = useState('')
   const [users, setUsers] = useState([])
   const [userFiltersDraft, setUserFiltersDraft] = useState({ search: '', email: '', name: '', full_name: '', role: '', status: '' })
   const [userFilters, setUserFilters] = useState({ page: 1, limit: 20, search: '', email: '', name: '', full_name: '', role: '', status: '' })
   const [usersTotalPages, setUsersTotalPages] = useState(0)
+  const [banUserTarget, setBanUserTarget] = useState(null)
+  const [banReasonInput, setBanReasonInput] = useState('')
+  const [banActionLoading, setBanActionLoading] = useState(false)
+  const [banActionError, setBanActionError] = useState('')
+  const [unbanUserTarget, setUnbanUserTarget] = useState(null)
+  const [unbanActionLoading, setUnbanActionLoading] = useState(false)
+  const [unbanActionError, setUnbanActionError] = useState('')
 
   const [plansLoading, setPlansLoading] = useState(false)
   const [plansError, setPlansError] = useState('')
@@ -609,6 +751,8 @@ function DashboardPage() {
   const [feedbackTotalPages, setFeedbackTotalPages] = useState(0)
   const [feedbackRating, setFeedbackRating] = useState('')
   const [feedbackReplyStatus, setFeedbackReplyStatus] = useState('')
+  const [feedbackTag, setFeedbackTag] = useState('')
+  const [criteriaList, setCriteriaList] = useState([])
   const [templates, setTemplates] = useState([])
   const [replyForms, setReplyForms] = useState({})
   const [deleteFeedbackTarget, setDeleteFeedbackTarget] = useState(null)
@@ -617,21 +761,26 @@ function DashboardPage() {
   const dateParams = useMemo(() => ({ from_date: fromDate, to_date: toDate }), [fromDate, toDate])
 
   const loadAnalytics = async () => {
+    if (fromDate && toDate && fromDate > toDate) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.' : 'From date must be earlier than or equal to To date.')
+      return
+    }
+    const todayStr = new Date().toISOString().split('T')[0]
+    if (toDate && toDate > todayStr) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày kết thúc không được vượt quá ngày hiện tại.' : 'To date cannot be in the future.')
+      return
+    }
+    if (fromDate && fromDate > todayStr) {
+      setAnalyticsError(lang === 'vi' ? 'Ngày bắt đầu không được vượt quá ngày hiện tại.' : 'From date cannot be in the future.')
+      return
+    }
+
     setAnalyticsLoading(true)
     setAnalyticsError('')
     try {
-      const [usersRes, requestsRes, fileFormatsRes, activeUsersRes] = await Promise.all([
-        adminApi.analytics.users(dateParams),
-        adminApi.analytics.requests(dateParams),
-        adminApi.analytics.fileFormats(dateParams),
-        adminApi.analytics.activeUsers(),
-      ])
-      setAnalyticsData({
-        users: usersRes?.data || usersRes,
-        requests: requestsRes?.data || requestsRes,
-        fileFormats: fileFormatsRes?.data || fileFormatsRes,
-        activeUsers: activeUsersRes?.data || activeUsersRes,
-      })
+      const response = await adminApi.analytics.overview(dateParams)
+      const data = response?.data || response || {}
+      setAnalyticsData(data)
     } catch (error) {
       setAnalyticsError(error?.message || (lang === 'vi' ? 'Không thể tải dữ liệu analytics.' : 'Unable to load analytics data.'))
     } finally {
@@ -671,7 +820,24 @@ function DashboardPage() {
     }
   }
 
-  const loadFeedbacks = async (pageValue = feedbackPage, ratingValue = feedbackRating, replyStatusValue = feedbackReplyStatus) => {
+  const loadCriteriaList = async () => {
+    try {
+      const res = await feedbacksApi.criteria()
+      const list = res?.criteria || res?.data?.criteria || (Array.isArray(res) ? res : [])
+      if (Array.isArray(list) && list.length > 0) {
+        setCriteriaList(list)
+      }
+    } catch {
+      // ignore criteria load error
+    }
+  }
+
+  const loadFeedbacks = async (
+    pageValue = feedbackPage,
+    ratingValue = feedbackRating,
+    replyStatusValue = feedbackReplyStatus,
+    tagValue = feedbackTag,
+  ) => {
     setFeedbackLoading(true)
     setFeedbackError('')
     try {
@@ -680,6 +846,7 @@ function DashboardPage() {
         limit: 20,
         rating: ratingValue || undefined,
         admin_replied: replyStatusValue || undefined,
+        tag: tagValue || undefined,
       })
       const list = toArray(response, ['items', 'feedbacks', 'results'])
       const pagination = getPagination(response)
@@ -703,6 +870,229 @@ function DashboardPage() {
     }
   }
 
+  const getUserId = (u) => {
+    return u?.id || u?.user_id || u?.userId || u?.ID || u?._id || ''
+  }
+
+  const isUserBanned = (u) => {
+    if (!u) return false
+    if (u.is_banned === true || u.isBanned === true || u.banned === true) return true
+    const status = String(u.status || '').toLowerCase()
+    if (status === 'banned' || status === 'suspended' || status === 'disabled') return true
+    if (u.is_active === false || u.isActive === false) return true
+    return Boolean(u.ban_reason || u.banReason || u.banned_at || u.bannedAt)
+  }
+
+  const handleOpenBanModal = (targetUser) => {
+    const targetId = getUserId(targetUser)
+    if (!targetId) return
+    const currentUserId = getUserId(user)
+    if (currentUserId && String(currentUserId) === String(targetId)) {
+      alert(
+        lang === 'vi'
+          ? 'Admin không thể tự vô hiệu hóa tài khoản của chính mình.'
+          : 'Administrators cannot disable their own account.',
+      )
+      return
+    }
+    setBanUserTarget(targetUser)
+    setBanReasonInput('')
+    setBanActionError('')
+  }
+
+  const handleOpenUnbanModal = (targetUser) => {
+    const targetId = getUserId(targetUser)
+    if (!targetId) return
+    setUnbanUserTarget(targetUser)
+    setUnbanActionError('')
+  }
+
+  const handleConfirmBan = async () => {
+    if (!banUserTarget) return
+    const targetId = getUserId(banUserTarget)
+    if (!targetId) return
+
+    setBanActionLoading(true)
+    setBanActionError('')
+
+    const reason =
+      banReasonInput.trim().slice(0, 500) ||
+      (lang === 'vi' ? 'Vô hiệu hóa bởi Quản trị viên' : 'Disabled by Admin')
+    try {
+      await adminApi.users.ban(targetId, { reason, ban_reason: reason })
+      setBanUserTarget(null)
+      setBanReasonInput('')
+      await loadUsers(userFilters)
+    } catch (error) {
+      setBanActionError(
+        error?.message || (lang === 'vi' ? 'Không thể cấm người dùng.' : 'Unable to ban user.'),
+      )
+    } finally {
+      setBanActionLoading(false)
+    }
+  }
+
+  const handleConfirmUnban = async () => {
+    if (!unbanUserTarget) return
+    const targetId = getUserId(unbanUserTarget)
+    if (!targetId) return
+
+    setUnbanActionLoading(true)
+    setUnbanActionError('')
+
+    try {
+      await adminApi.users.unban(targetId)
+      setUnbanUserTarget(null)
+      await loadUsers(userFilters)
+    } catch (error) {
+      setUnbanActionError(
+        error?.message || (lang === 'vi' ? 'Không thể bỏ cấm người dùng.' : 'Unable to unban user.'),
+      )
+    } finally {
+      setUnbanActionLoading(false)
+    }
+  }
+
+  const resetPlanForm = () => {
+    setEditingPlanId('')
+    setPlanForm({
+      name: '',
+      display_name: '',
+      char_limit: '',
+      daily_word_limit: '',
+      price: '',
+      duration_days: '',
+      description: '',
+      is_active: true,
+    })
+  }
+
+  const handleEditPlan = (plan) => {
+    const id = plan?.id || plan?._id
+    setEditingPlanId(id || '')
+    setPlanForm({
+      name: plan?.name || '',
+      display_name: plan?.display_name || plan?.displayName || '',
+      char_limit: plan?.char_limit !== undefined ? String(plan.char_limit) : '',
+      daily_word_limit: plan?.daily_word_limit !== undefined ? String(plan.daily_word_limit) : '',
+      price: plan?.price !== undefined ? String(plan.price) : '',
+      duration_days: plan?.duration_days !== undefined ? String(plan.duration_days) : '',
+      description: plan?.description || '',
+      is_active: plan?.is_active ?? true,
+    })
+  }
+
+  const handleSavePlan = async () => {
+    const charLimit = Number(planForm.char_limit) || 0
+    const durationDays = Number(planForm.duration_days) || 0
+    const dailyWordLimit = Number(planForm.daily_word_limit) || 0
+    const price = Number(planForm.price) || 0
+
+    if (!planForm.name?.trim() || !planForm.display_name?.trim()) {
+      alert(lang === 'vi' ? 'Vui lòng nhập tên gói và tên hiển thị.' : 'Please enter plan name and display name.')
+      return
+    }
+    if (charLimit < 100) {
+      alert(lang === 'vi' ? 'Giới hạn ký tự/từ tối thiểu là 100.' : 'Character limit must be at least 100.')
+      return
+    }
+    if (durationDays < 1 || durationDays > 3650) {
+      alert(lang === 'vi' ? 'Thời hạn gói phải từ 1 đến 3650 ngày.' : 'Duration must be between 1 and 3650 days.')
+      return
+    }
+    if (dailyWordLimit < 0) {
+      alert(lang === 'vi' ? 'Hạn mức từ theo ngày không được âm.' : 'Daily word limit cannot be negative.')
+      return
+    }
+    if (price < 0) {
+      alert(lang === 'vi' ? 'Giá gói cước không được âm.' : 'Price cannot be negative.')
+      return
+    }
+
+    const payload = {
+      name: planForm.name.trim(),
+      display_name: planForm.display_name.trim(),
+      char_limit: charLimit,
+      daily_word_limit: dailyWordLimit,
+      price: price,
+      duration_days: durationDays,
+      description: (planForm.description || '').trim().slice(0, 500),
+      is_active: Boolean(planForm.is_active),
+    }
+
+    try {
+      if (editingPlanId) {
+        await adminApi.subscriptions.update(editingPlanId, payload)
+      } else {
+        await adminApi.subscriptions.create(payload)
+      }
+      resetPlanForm()
+      await loadPlans()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể lưu gói.' : 'Unable to save subscription plan.'))
+    }
+  }
+
+  const handleDeletePlan = async (plan) => {
+    const id = plan?.id || plan?._id
+    if (!id) return
+    const confirmMsg = lang === 'vi' ? 'Bạn có chắc chắn muốn xóa gói này?' : 'Are you sure you want to delete this plan?'
+    if (!window.confirm(confirmMsg)) return
+    try {
+      await adminApi.subscriptions.remove(id)
+      await loadPlans()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể xóa gói.' : 'Unable to delete subscription plan.'))
+    }
+  }
+
+  const handleReplyFeedback = async (feedback, index) => {
+    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
+    const replyForm = replyForms[id]
+    const replyContent = String(replyForm?.reply_content || '').trim()
+    if (!replyContent) {
+      alert(lang === 'vi' ? 'Vui lòng nhập nội dung phản hồi.' : 'Please enter reply content.')
+      return
+    }
+    if (replyContent.length < 5 || replyContent.length > 2000) {
+      alert(lang === 'vi' ? 'Nội dung phản hồi phải từ 5 đến 2000 ký tự.' : 'Reply content must be between 5 and 2000 characters.')
+      return
+    }
+    try {
+      await adminApi.feedbacks.reply(id, {
+        template_type: replyForm.template_type || undefined,
+        reply_content: replyContent,
+        admin_replied: 'replied',
+      })
+      await loadFeedbacks()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể gửi phản hồi.' : 'Unable to send reply.'))
+    }
+  }
+
+  const handleDeleteFeedback = (feedback) => {
+    setDeleteFeedbackTarget(feedback)
+  }
+
+  const confirmDeleteFeedback = async () => {
+    if (!deleteFeedbackTarget) return
+    const id = deleteFeedbackTarget?.id || deleteFeedbackTarget?._id || deleteFeedbackTarget?.feedback_id
+    if (!id) {
+      setDeleteFeedbackTarget(null)
+      return
+    }
+    setIsDeletingFeedback(true)
+    try {
+      await adminApi.feedbacks.remove(id)
+      setDeleteFeedbackTarget(null)
+      await loadFeedbacks()
+    } catch (error) {
+      alert(error?.message || (lang === 'vi' ? 'Không thể xóa phản hồi.' : 'Unable to delete feedback.'))
+    } finally {
+      setIsDeletingFeedback(false)
+    }
+  }
+
   useEffect(() => {
     if (activeNav === 'analyticsReports') {
       loadAnalytics()
@@ -723,10 +1113,11 @@ function DashboardPage() {
 
   useEffect(() => {
     if (activeNav === 'feedbackModeration') {
-      loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
+      loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus, feedbackTag)
       loadReplyTemplates()
+      loadCriteriaList()
     }
-  }, [activeNav, feedbackPage, feedbackRating, feedbackReplyStatus])
+  }, [activeNav, feedbackPage, feedbackRating, feedbackReplyStatus, feedbackTag])
 
   const formatMetric = (value) => {
     const numeric = Number(value)
@@ -742,57 +1133,15 @@ function DashboardPage() {
     return Number.isFinite(numeric) ? numeric : 0
   }
 
-  const usersTimeSeries = useMemo(() => extractRecordList(analyticsData.users), [analyticsData.users])
-
-  const usersByStatusMap = useMemo(
-    () => deepFindObject(analyticsData.users, ['users_by_status', 'usersByStatus']) || {},
-    [analyticsData.users],
-  )
-  const usersByRoleMap = useMemo(
-    () => deepFindObject(analyticsData.users, ['users_by_role', 'usersByRole']) || {},
-    [analyticsData.users],
-  )
-  const activeByPlanMap = useMemo(
-    () => deepFindObject(analyticsData.activeUsers, ['by_plan', 'byPlan']) || {},
-    [analyticsData.activeUsers],
-  )
-
   const analyticsCards = useMemo(() => {
-    const fallbackTotalUsers = Object.values(usersByStatusMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
+    const usersObj = analyticsData?.users || {}
+    const requestsObj = analyticsData?.requests || {}
+    const activeUsersObj = analyticsData?.active_users || {}
 
-    const totalUsers =
-      deepFindNumber(analyticsData.users, [
-        'total_users_overall',
-        'totalUsersOverall',
-        'total_users',
-        'totalUsers',
-        'total',
-        'count',
-        'registrations',
-      ]) ||
-      fallbackTotalUsers ||
-      0
-
-    const newUsersFromSeries = usersTimeSeries.reduce((sum, point) => {
-      const value = Number(point?.new_users ?? point?.newUsers ?? point?.count ?? 0)
-      return sum + (Number.isFinite(value) ? value : 0)
-    }, 0)
-
-    const newUsers =
-      deepFindNumber(analyticsData.users, ['total_users_in_period', 'totalUsersInPeriod']) ||
-      newUsersFromSeries ||
-      0
-
-    const totalRequests =
-      deepFindNumber(analyticsData.requests, ['total_requests', 'totalRequests', 'total', 'count', 'requests']) ||
-      0
-
-    const fallbackActiveUsersCount = Object.values(activeByPlanMap).reduce((sum, value) => sum + (Number(value) || 0), 0)
-
-    const activeUsersCount =
-      deepFindNumber(analyticsData.activeUsers, ['active_users_count', 'activeUsersCount', 'active_users', 'activeUsers']) ||
-      fallbackActiveUsersCount ||
-      0
+    const totalUsers = Number(usersObj.total_users_overall ?? usersObj.total_users ?? 0)
+    const newUsers = Number(usersObj.total_users_in_period ?? usersObj.new_users ?? 0)
+    const totalRequests = Number(requestsObj.total_requests ?? requestsObj.total ?? 0)
+    const activeCount = Number(activeUsersObj.total ?? 0)
 
     return [
       {
@@ -816,222 +1165,114 @@ function DashboardPage() {
       {
         key: 'activeUsers',
         title: lang === 'vi' ? 'Đang hoạt động (5 phút)' : 'Active users (5 min)',
-        value: activeUsersCount,
+        value: activeCount,
         accent: 'text-amber-300',
       },
     ]
-  }, [analyticsData.users, analyticsData.requests, analyticsData.activeUsers, usersByStatusMap, activeByPlanMap, usersTimeSeries, lang])
+  }, [analyticsData, lang])
 
-  const userStatusPoints = useMemo(
-    () => extractObjectPoints(usersByStatusMap),
-    [usersByStatusMap],
-  )
-  const userRolePoints = useMemo(
-    () => extractObjectPoints(usersByRoleMap),
-    [usersByRoleMap],
-  )
-  const activeByPlanPoints = useMemo(
-    () => extractObjectPoints(activeByPlanMap),
-    [activeByPlanMap],
-  )
-  const requestInsights = useMemo(
-    () => ({
-      characters: deepFindNumber(analyticsData.requests, ['total_characters_processed', 'totalCharactersProcessed']) || 0,
-      words: deepFindNumber(analyticsData.requests, ['total_words_processed', 'totalWordsProcessed']) || 0,
-      latency: deepFindNumber(analyticsData.requests, ['avg_latency_ms', 'avgLatencyMs']) || 0,
-    }),
-    [analyticsData.requests],
-  )
-  const activeUsersWindowMinutes = useMemo(
-    () => deepFindNumber(analyticsData.activeUsers, ['window_minutes', 'windowMinutes']) || 5,
-    [analyticsData.activeUsers],
-  )
-
-  const fileFormatTrend = useMemo(() => extractFormatPoints(analyticsData.fileFormats), [analyticsData.fileFormats])
-
-  const userCompositionMax = useMemo(
-    () => Math.max(1, ...[...userStatusPoints, ...userRolePoints].map((point) => point.value)),
-    [userStatusPoints, userRolePoints],
-  )
-  const activeByPlanMax = useMemo(() => Math.max(1, ...activeByPlanPoints.map((point) => point.value)), [activeByPlanPoints])
-  const fileFormatMax = useMemo(() => Math.max(1, ...fileFormatTrend.map((point) => point.value)), [fileFormatTrend])
-
-  const resetPlanForm = () => {
-    setEditingPlanId('')
-    setPlanForm({
-      name: '',
-      display_name: '',
-      char_limit: '',
-      daily_word_limit: '',
-      price: '',
-      duration_days: '',
-      description: '',
-      is_active: true,
-    })
-  }
-
-  const handleSavePlan = async () => {
-    const payload = {
-      name: planForm.name,
-      display_name: planForm.display_name,
-      char_limit: parseNumber(planForm.char_limit),
-      daily_word_limit: parseNumber(planForm.daily_word_limit),
-      price: parseNumber(planForm.price),
-      duration_days: parseNumber(planForm.duration_days),
-      description: planForm.description,
-      is_active: Boolean(planForm.is_active),
-    }
-
-    try {
-      if (editingPlanId) {
-        await adminApi.subscriptions.update(editingPlanId, payload)
-      } else {
-        await adminApi.subscriptions.create(payload)
-      }
-      resetPlanForm()
-      await loadPlans()
-    } catch (error) {
-      setPlansError(error?.message || (lang === 'vi' ? 'Không thể lưu gói.' : 'Unable to save plan.'))
-    }
-  }
-
-  const handleEditPlan = (plan, index) => {
-    const id = plan?.id || plan?._id || plan?.subscription_id || `plan-${index}`
-    setEditingPlanId(id)
-    setPlanForm({
-      name: String(plan?.name || ''),
-      display_name: String(plan?.display_name || plan?.displayName || ''),
-      char_limit: String(plan?.char_limit ?? plan?.charLimit ?? ''),
-      daily_word_limit: String(plan?.daily_word_limit ?? plan?.dailyWordLimit ?? ''),
-      price: String(plan?.price ?? ''),
-      duration_days: String(plan?.duration_days ?? plan?.durationDays ?? ''),
-      description: String(plan?.description || ''),
-      is_active: Boolean(plan?.is_active ?? plan?.isActive ?? true),
-    })
-  }
-
-  const handleDeletePlan = async (plan, index) => {
-    const id = plan?.id || plan?._id || plan?.subscription_id || `plan-${index}`
-    if (!window.confirm(lang === 'vi' ? 'Xóa gói này?' : 'Delete this plan?')) return
-
-    try {
-      await adminApi.subscriptions.remove(id)
-      await loadPlans()
-    } catch (error) {
-      setPlansError(error?.message || (lang === 'vi' ? 'Không thể xóa gói.' : 'Unable to delete plan.'))
-    }
-  }
-
-  const handleToggleBan = async (user) => {
-    const id = user?.id || user?._id || user?.user_id
-    if (!id) return
-
-    const isBanned = String(user?.status || '').toLowerCase() === 'banned'
-    try {
-      if (isBanned) {
-        await adminApi.users.unban(id)
-      } else {
-        const reason = window.prompt(lang === 'vi' ? 'Lý do cấm (tùy chọn):' : 'Ban reason (optional):') || ''
-        await adminApi.users.ban(id, reason ? { reason } : {})
-      }
-      await loadUsers(userFilters)
-    } catch (error) {
-      setUsersError(error?.message || (lang === 'vi' ? 'Không thể cập nhật trạng thái người dùng.' : 'Unable to update user status.'))
-    }
-  }
-
-  const handleReplyFeedback = async (feedback, index) => {
-    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
-    const { replyContent, templateType } = getFeedbackExistingReply(feedback)
-    const form = replyForms[id] || { template_type: templateType, reply_content: replyContent }
-    const currentStatus = getFeedbackReplyStatus(feedback)
-    const selectedTemplate = form.template_type || templateType || ''
-    const isCustomTemplate = normalizeTemplateKey(selectedTemplate) === 'custom'
-    const resolvedReplyContent = isCustomTemplate
-      ? (form.reply_content || '').trim()
-      : (getTemplateDefaultContent(selectedTemplate, templates) || form.reply_content || '').trim()
-
-    if (currentStatus === 'replied') {
-      return
-    }
-
-    if (isCustomTemplate && !resolvedReplyContent) {
-      setFeedbackError(lang === 'vi' ? 'Nội dung phản hồi không được để trống.' : 'Reply content is required.')
-      return
-    }
-
-    if (!isCustomTemplate && !resolvedReplyContent) {
-      setFeedbackError(lang === 'vi' ? 'Mẫu phản hồi đã chọn chưa có nội dung mặc định.' : 'The selected template has no default reply content.')
-      return
-    }
-
-    try {
-      const nextReplyForm = {
-        ...form,
-        template_type: selectedTemplate || undefined,
-        reply_content: resolvedReplyContent,
-      }
-
-      setReplyForms((prev) => ({ ...prev, [id]: nextReplyForm }))
-
-      await adminApi.feedbacks.reply(id, {
-        template_type: nextReplyForm.template_type || undefined,
-        reply_content: nextReplyForm.reply_content,
-        admin_replied: 'replied',
+  const usageByTierPoints = useMemo(() => {
+    const usageObj = analyticsData?.usage_by_tier || {}
+    const tiers = Array.isArray(usageObj.tiers) ? usageObj.tiers : []
+    if (tiers.length > 0) {
+      return tiers.map((item, idx) => {
+        const tierName = item.tier || 'other'
+        const color =
+          tierName.toLowerCase() === 'max'
+            ? '#f59e0b'
+            : tierName.toLowerCase() === 'pro'
+              ? '#6366f1'
+              : tierName.toLowerCase() === 'free'
+                ? '#06b6d4'
+                : PIE_COLORS[idx % PIE_COLORS.length]
+        return {
+          label: formatTierName(tierName, lang),
+          value: Number(item.total_requests) || 0,
+          percentage: Number(item.percentage_requests) || 0,
+          color,
+        }
       })
-      await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
-    } catch (error) {
-      setFeedbackError(error?.message || (lang === 'vi' ? 'Không thể gửi phản hồi.' : 'Unable to send feedback reply.'))
     }
-  }
+    return []
+  }, [analyticsData?.usage_by_tier, lang])
 
-  const handleDeleteFeedback = (feedback, index) => {
-    const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
-    setDeleteFeedbackTarget({ id, feedback })
-  }
-
-  const confirmDeleteFeedback = async () => {
-    if (!deleteFeedbackTarget?.id) return
-    setIsDeletingFeedback(true)
-
-    try {
-      await adminApi.feedbacks.remove(deleteFeedbackTarget.id)
-      setDeleteFeedbackTarget(null)
-      await loadFeedbacks(feedbackPage, feedbackRating, feedbackReplyStatus)
-    } catch (error) {
-      setFeedbackError(error?.message || (lang === 'vi' ? 'Không thể xóa phản hồi.' : 'Unable to delete feedback.'))
-    } finally {
-      setIsDeletingFeedback(false)
+  const activeUsersByTierPoints = useMemo(() => {
+    const activeUsersObj = analyticsData?.active_users || {}
+    const byPlan = activeUsersObj.by_plan || activeUsersObj.byPlan || {}
+    const planKeys = Object.keys(byPlan)
+    if (planKeys.length > 0) {
+      const items = planKeys.map((planKey) => {
+        const val = Number(byPlan[planKey]) || 0
+        const color =
+          planKey.toLowerCase() === 'max'
+            ? '#f59e0b'
+            : planKey.toLowerCase() === 'pro'
+              ? '#6366f1'
+              : planKey.toLowerCase() === 'free'
+                ? '#06b6d4'
+                : '#10b981'
+        return {
+          label: formatTierName(planKey, lang),
+          value: val,
+          color,
+        }
+      })
+      const hasAnyNonZero = items.some((item) => item.value > 0)
+      if (hasAnyNonZero) return items
     }
-  }
+    const total = Number(activeUsersObj.total) || 0
+    if (total > 0) {
+      return [{ label: lang === 'vi' ? 'Đang hoạt động' : 'Active', value: total, color: '#10b981' }]
+    }
+    return []
+  }, [analyticsData?.active_users, lang])
+
+  const fileFormatsByTier = useMemo(() => {
+    const raw = analyticsData?.file_formats_by_tier || {}
+    const tiers = ['free', 'pro', 'max']
+
+    const result = {}
+    tiers.forEach((tierKey) => {
+      const items = Array.isArray(raw[tierKey]) ? raw[tierKey] : []
+      result[tierKey] = items.map((item, idx) => ({
+        label: formatFileFormatName(item.format, lang),
+        value: Number(item.count) || 0,
+        percentage: Number(item.percentage) || 0,
+        color: PIE_COLORS[idx % PIE_COLORS.length],
+      }))
+    })
+
+    return result
+  }, [analyticsData?.file_formats_by_tier, lang])
 
   const renderAnalyticsReports = () => (
-    <div className="space-y-4 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
+      {/* Header với Tiêu đề & Chọn ngày */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.overview')}</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo phân tích' : 'Analytics reports'}</h2>
+          <h2 className="mt-2 text-xl font-semibold text-white">{lang === 'vi' ? 'Báo cáo thống kê' : 'Analytics & reports'}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Từ:' : 'From:'}</span>
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-xs text-slate-400 shrink-0">{lang === 'vi' ? 'Từ:' : 'From:'}</span>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+              className="w-full sm:w-auto rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
             />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400">{lang === 'vi' ? 'Đến:' : 'To:'}</span>
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-xs text-slate-400 shrink-0">{lang === 'vi' ? 'Đến:' : 'To:'}</span>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
+              className="w-full sm:w-auto rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 [color-scheme:dark]"
             />
           </div>
-          <button type="button" onClick={loadAnalytics} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
+          <button type="button" onClick={loadAnalytics} className="w-full sm:w-auto rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-surface-base transition hover:bg-accent-hover">
             {lang === 'vi' ? 'Làm mới' : 'Refresh'}
           </button>
         </div>
@@ -1039,9 +1280,10 @@ function DashboardPage() {
 
       {analyticsError && <p className="text-sm text-rose-300">{analyticsError}</p>}
       {analyticsLoading ? (
-        <div className="text-sm text-slate-400">{lang === 'vi' ? 'Đang tải dữ liệu...' : 'Loading data...'}</div>
+        <div className="py-8 text-center text-sm text-slate-400">{lang === 'vi' ? 'Đang tải dữ liệu...' : 'Loading data...'}</div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Top 4 Stats Cards */}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {analyticsCards.map((card) => (
               <div key={card.key} className="rounded-2xl border border-surface-border bg-gradient-to-br from-surface-base/90 to-surface-base/50 p-4">
@@ -1053,105 +1295,127 @@ function DashboardPage() {
             ))}
           </div>
 
+          {/* Row 1: Phân bổ người dùng theo bậc (Pie chart) & Người dùng Realtime theo bậc (Pie chart) */}
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ người dùng' : 'User segmentation'}</p>
-              {[...userStatusPoints, ...userRolePoints].length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu biểu đồ.' : 'No chart data available yet.'}</p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {userStatusPoints.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo trạng thái' : 'By status'}</p>
-                      {userStatusPoints.map((point) => (
-                        <div key={`status-${point.label}-${point.value}`}>
-                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                            <span className="truncate pr-2">{point.label}</span>
-                            <span>{formatMetric(point.value)}</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-surface-border/60">
-                            <div
-                              className="h-2 rounded-full bg-cyan-400"
-                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {userRolePoints.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Theo vai trò' : 'By role'}</p>
-                      {userRolePoints.map((point) => (
-                        <div key={`role-${point.label}-${point.value}`}>
-                          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                            <span className="truncate pr-2">{point.label}</span>
-                            <span>{formatMetric(point.value)}</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-surface-border/60">
-                            <div
-                              className="h-2 rounded-full bg-indigo-400"
-                              style={{ width: `${Math.max(4, (point.value / userCompositionMax) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+            {/* Phân bổ người dùng & yêu cầu theo bậc */}
+            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">
+                    {lang === 'vi' ? 'Phân bổ người dùng theo bậc' : 'User distribution by tier'}
+                  </p>
+                  <span className="text-xs text-slate-400">
+                    {lang === 'vi' ? 'Theo lượt yêu cầu' : 'By requests'}
+                  </span>
                 </div>
-              )}
+                <p className="mt-1 text-xs text-slate-500">
+                  {lang === 'vi' ? 'Tỷ lệ phân bổ và sử dụng của từng nhóm người dùng (Free, Pro, Max)' : 'Usage distribution across tiers (Free, Pro, Max)'}
+                </p>
+              </div>
+              <div className="mt-4">
+                <DonutPieChart
+                  data={usageByTierPoints}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  centerLabel={lang === 'vi' ? 'Yêu cầu' : 'Requests'}
+                  emptyText={lang === 'vi' ? 'Chưa có dữ liệu phân bổ bậc người dùng.' : 'No tier usage data available.'}
+                />
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-              <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Yêu cầu & người dùng realtime' : 'Requests & realtime users'}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Ký tự xử lý' : 'Chars processed'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.characters)}</p>
-                </div>
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Từ xử lý' : 'Words processed'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.words)}</p>
-                </div>
-                <div className="rounded-xl border border-surface-border/70 bg-surface-base/50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{lang === 'vi' ? 'Độ trễ TB' : 'Avg latency'}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-100">{formatMetric(requestInsights.latency)} ms</p>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  {lang === 'vi' ? 'Đang hoạt động theo gói' : 'Active by plan'}
-                  <span className="ml-2 normal-case tracking-normal text-slate-400">
-                    ({lang === 'vi' ? 'cửa sổ' : 'window'} {activeUsersWindowMinutes} {lang === 'vi' ? 'phút' : 'minutes'})
+            {/* Người dùng realtime theo bậc */}
+            <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">
+                    {lang === 'vi' ? 'Người dùng Realtime theo bậc' : 'Realtime active users by tier'}
+                  </p>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {lang === 'vi' ? 'Trực tiếp (5 phút)' : 'Live (5 min)'}
                   </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {lang === 'vi' ? 'Số lượng người dùng đang hoạt động phân theo từng bậc' : 'Active users in the last 5 minutes broken down by tier'}
                 </p>
-                {activeByPlanPoints.length === 0 ? (
-                  <p className="text-xs text-slate-500">{lang === 'vi' ? 'Chưa có dữ liệu realtime.' : 'No realtime plan data yet.'}</p>
-                ) : (
-                  activeByPlanPoints.map((point) => (
-                    <div key={`plan-${point.label}-${point.value}`}>
-                      <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                        <span className="truncate pr-2">{point.label}</span>
-                        <span>{formatMetric(point.value)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-surface-border/60">
-                        <div
-                          className="h-2 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.max(4, (point.value / activeByPlanMax) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
+              </div>
+              <div className="mt-4">
+                <DonutPieChart
+                  data={activeUsersByTierPoints}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  centerLabel={lang === 'vi' ? 'Đang online' : 'Online'}
+                  emptyText={lang === 'vi' ? 'Hiện tại không có người dùng nào đang hoạt động.' : 'No active users in the current window.'}
+                />
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-4">
-            <p className="text-sm font-semibold text-white">{lang === 'vi' ? 'Phân bổ định dạng tệp' : 'File format distribution'}</p>
-            <FileFormatPieChart data={fileFormatTrend} lang={lang} formatMetric={formatMetric} />
+          {/* Row 2: Phân bổ định dạng tệp tin theo bậc người dùng (1 khung chia thành 3 cột, mỗi cột 1 biểu đồ tròn) */}
+          <div className="rounded-2xl border border-surface-border bg-surface-base/40 p-5 space-y-4">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-white">
+                  {lang === 'vi' ? 'Phân bổ định dạng tệp tin theo bậc người dùng' : 'File format distribution by user tier'}
+                </h3>
+                <span className="text-xs text-slate-400">
+                  {lang === 'vi' ? 'Tỷ lệ % định dạng tệp (Text, PDF, DOCX,...) được sử dụng ở từng bậc' : 'Percentage of file formats used per user tier'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 pt-2">
+              {/* Cột 1: Gói Free */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 text-xs font-bold text-cyan-300">
+                    {lang === 'vi' ? 'Gói Miễn phí (Free)' : 'Free Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.free || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Free' : 'Free Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Free.' : 'No files in Free tier.'}
+                />
+              </div>
+
+              {/* Cột 2: Gói Pro */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 px-3 py-1 text-xs font-bold text-indigo-300">
+                    {lang === 'vi' ? 'Gói Nâng cao (Pro)' : 'Pro Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.pro || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Pro' : 'Pro Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Pro.' : 'No files in Pro tier.'}
+                />
+              </div>
+
+              {/* Cột 3: Gói Max */}
+              <div className="rounded-xl border border-surface-border/70 bg-surface-base/60 p-4 flex flex-col justify-between">
+                <div className="text-center pb-2 border-b border-surface-border/50 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-xs font-bold text-amber-300">
+                    {lang === 'vi' ? 'Gói Cao cấp (Max)' : 'Max Tier'}
+                  </span>
+                </div>
+                <DonutPieChart
+                  data={fileFormatsByTier.max || []}
+                  lang={lang}
+                  formatMetric={formatMetric}
+                  compact={true}
+                  centerLabel={lang === 'vi' ? 'Tệp Max' : 'Max Files'}
+                  emptyText={lang === 'vi' ? 'Chưa có tệp ở gói Max.' : 'No files in Max tier.'}
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1165,14 +1429,15 @@ function DashboardPage() {
         <h2 className="mt-2 text-xl font-semibold text-white">{t('dashboard.userManagementTitle')}</h2>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <input value={userFiltersDraft.search} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, search: e.target.value }))} placeholder={lang === 'vi' ? 'Tìm kiếm' : 'Search'} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <input value={userFiltersDraft.email} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, email: e.target.value }))} placeholder={t('dashboard.filterByEmail')} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <input value={userFiltersDraft.name} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, name: e.target.value }))} placeholder={t('dashboard.filterByName')} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
-        <select value={userFiltersDraft.status} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, status: e.target.value }))} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
-          <option value="">{lang === 'vi' ? 'Tất cả trạng thái' : 'All status'}</option>
-          <option value="active">active</option>
-          <option value="banned">banned</option>
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <input value={userFiltersDraft.search} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, search: e.target.value }))} placeholder={lang === 'vi' ? 'Tìm kiếm' : 'Search'} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <input value={userFiltersDraft.email} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, email: e.target.value }))} placeholder={t('dashboard.filterByEmail')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <input value={userFiltersDraft.name} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, name: e.target.value }))} placeholder={t('dashboard.filterByName')} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200" />
+        <select value={userFiltersDraft.status} onChange={(e) => setUserFiltersDraft((p) => ({ ...p, status: e.target.value }))} className="w-full min-w-0 rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
+          <option value="">{t('dashboard.userStatusOptions.all')}</option>
+          <option value="active">{t('dashboard.userStatusOptions.active')}</option>
+          <option value="banned">{t('dashboard.userStatusOptions.banned')}</option>
+          <option value="pending">{t('dashboard.userStatusOptions.pending')}</option>
         </select>
       </div>
 
@@ -1190,43 +1455,74 @@ function DashboardPage() {
       {usersLoading ? (
         <p className="text-sm text-slate-400">{lang === 'vi' ? 'Đang tải người dùng...' : 'Loading users...'}</p>
       ) : (
-        <div className="overflow-hidden rounded-3xl border border-surface-border">
-          <div className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            <span>{t('dashboard.userName')}</span>
-            <span>{t('dashboard.userEmail')}</span>
-            <span>{t('dashboard.userStatus')}</span>
-            <span>{t('dashboard.banReason')}</span>
-            <span>{t('dashboard.action')}</span>
-          </div>
-          <div className="divide-y divide-surface-border bg-surface-raised/30">
-            {users.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
-            ) : (
-              users.map((user, index) => {
-                const status = String(user?.status || '').toLowerCase()
-                const isBanned = status === 'banned' || status === 'suspended'
-                const banReason = user?.ban_reason || user?.banReason || user?.reason || '-'
-                return (
-                  <div key={user?.id || user?._id || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
-                    <span className="truncate text-white">{user?.full_name || user?.fullName || user?.name || '-'}</span>
-                    <span className="truncate text-slate-300">{user?.email || '-'}</span>
-                    <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${isBanned ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
-                      {user?.status || '-'}
-                    </span>
-                    <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
-                      {banReason}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleBan(user)}
-                      className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${isBanned ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'}`}
-                    >
-                      {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
-                    </button>
-                  </div>
-                )
-              })
-            )}
+        <div className="overflow-x-auto rounded-3xl border border-surface-border">
+          <div className="min-w-[640px]">
+            <div className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] gap-4 border-b border-surface-border bg-surface-base px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              <span>{t('dashboard.userName')}</span>
+              <span>{t('dashboard.userEmail')}</span>
+              <span>{t('dashboard.userStatus')}</span>
+              <span>{t('dashboard.banReason')}</span>
+              <span>{t('dashboard.action')}</span>
+            </div>
+            <div className="divide-y divide-surface-border bg-surface-raised/30">
+              {users.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-400">{t('dashboard.noUsersFound')}</div>
+              ) : (
+                users.map((targetUser, index) => {
+                  const targetId = getUserId(targetUser)
+                  const isBanned = isUserBanned(targetUser)
+                  const isPending = String(targetUser?.status || '').toLowerCase() === 'pending'
+                  const banReason =
+                    targetUser?.ban_reason ||
+                    targetUser?.banReason ||
+                    targetUser?.reason ||
+                    (isBanned ? (lang === 'vi' ? 'Đã bị khóa' : 'Banned') : '-')
+                  const statusLabel = isBanned
+                    ? t('dashboard.userStatusOptions.banned')
+                    : isPending
+                      ? t('dashboard.userStatusOptions.pending')
+                      : t('dashboard.userStatusOptions.active')
+                  const statusBadgeClass = isBanned
+                    ? 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
+                    : isPending
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
+                      : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+
+                  const currentUserId = getUserId(user)
+                  const isSelf = currentUserId && String(currentUserId) === String(targetId)
+
+                  return (
+                    <div key={targetId || `user-${index}`} className="grid grid-cols-[1.2fr_1.5fr_0.8fr_1.5fr_0.8fr] items-center gap-4 px-4 py-3 text-sm">
+                      <span className="truncate text-white">{targetUser?.full_name || targetUser?.fullName || targetUser?.name || '-'}</span>
+                      <span className="truncate text-slate-300">{targetUser?.email || '-'}</span>
+                      <span className={`inline-flex w-fit rounded-xl px-2.5 py-1 text-xs font-semibold ${statusBadgeClass}`}>
+                        {statusLabel}
+                      </span>
+                      <span className="truncate text-xs text-slate-400" title={typeof banReason === 'string' && banReason !== '-' ? banReason : undefined}>
+                        {banReason}
+                      </span>
+                      {isSelf ? (
+                        <span className="text-xs text-slate-500 italic">
+                          {lang === 'vi' ? 'Tài khoản của bạn' : 'Your account'}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => (isBanned ? handleOpenUnbanModal(targetUser) : handleOpenBanModal(targetUser))}
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                            isBanned
+                              ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                              : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                          }`}
+                        >
+                          {isBanned ? t('dashboard.unban') : t('dashboard.ban')}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1314,14 +1610,93 @@ function DashboardPage() {
     </div>
   )
 
+  const availableTags = useMemo(() => {
+    const map = new Map()
+
+    const addTag = (code, rawLabel) => {
+      if (!code) return
+      const cleanCode = String(code).trim()
+      if (!cleanCode || map.has(cleanCode)) return
+      const translated = t(`feedback.reasons.${cleanCode}`)
+      const label = translated && translated !== `feedback.reasons.${cleanCode}`
+        ? translated
+        : (rawLabel || cleanCode)
+      map.set(cleanCode, { code: cleanCode, label })
+    }
+
+    criteriaList.forEach((item) => {
+      const code = typeof item === 'string' ? item : item?.code || item?.id || item?.name
+      const label = typeof item === 'object' ? item?.label || item?.name : ''
+      addTag(code, label)
+    })
+
+    feedbacks.forEach((fb) => {
+      const tags = getFeedbackTags(fb, t)
+      tags.forEach((tItem) => addTag(tItem.code, tItem.label))
+    })
+
+    const commonCodes = [
+      'summary_accurate',
+      'clear_concise',
+      'good_structure',
+      'context_preserved',
+      'key_points_covered',
+      'summary_inaccurate',
+      'missing_critical_info',
+      'hallucination',
+      'awkward_phrasing',
+      'too_long_or_short',
+      'poor_formatting',
+      'ocr_high_accuracy',
+      'ocr_unreadable_file',
+      'ocr_missing_large_text',
+      'ocr_wrong_language',
+      'ocr_character_errors',
+      'ocr_layout_broken',
+      'missing_info',
+      'clunky_sentences',
+      'spelling_grammar',
+      'loss_of_context',
+      'other',
+    ]
+    commonCodes.forEach((code) => addTag(code))
+
+    return Array.from(map.values())
+  }, [criteriaList, feedbacks, t])
+
+  const displayedFeedbacks = useMemo(() => {
+    return feedbacks.filter((fb) => {
+      if (feedbackRating) {
+        const ratingNum = Number(fb?.rating ?? fb?.score)
+        const targetRating = Number(feedbackRating)
+        if (Number.isFinite(targetRating)) {
+          if (Number.isFinite(ratingNum) && ratingNum > 0) {
+            if (ratingNum !== targetRating) return false
+          } else {
+            const raw = String(fb?.rating || '').toLowerCase()
+            if (targetRating >= 4 && raw !== 'like') return false
+            if (targetRating < 4 && raw !== 'dislike') return false
+          }
+        }
+      }
+      if (feedbackTag) {
+        const tags = getFeedbackTags(fb, t)
+        const hasTag = tags.some((tObj) => tObj.code === feedbackTag || tObj.label === feedbackTag)
+        if (!hasTag) return false
+      }
+      return true
+    })
+  }, [feedbacks, feedbackRating, feedbackTag, t])
+
   const renderFeedbackModeration = () => (
     <div className="space-y-5 rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-sm shadow-black/10">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{t('nav.feedbackModeration')}</p>
           <h2 className="mt-2 text-xl font-semibold text-white">{t('dashboard.feedbackModerationUi.title')}</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Trạng thái phản hồi */}
           <select
             value={feedbackReplyStatus}
             onChange={(e) => { setFeedbackReplyStatus(e.target.value); setFeedbackPage(1) }}
@@ -1331,10 +1706,33 @@ function DashboardPage() {
             <option value="pending">{t('dashboard.feedbackModerationUi.pending')}</option>
             <option value="replied">{t('dashboard.feedbackModerationUi.replied')}</option>
           </select>
-          <select value={feedbackRating} onChange={(e) => { setFeedbackRating(e.target.value); setFeedbackPage(1) }} className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200">
+
+          {/* Lọc số sao */}
+          <select
+            value={feedbackRating}
+            onChange={(e) => { setFeedbackRating(e.target.value); setFeedbackPage(1) }}
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+          >
             <option value="">{t('dashboard.feedbackModerationUi.allRatings')}</option>
-            <option value="like">{t('dashboard.feedbackModerationUi.like')}</option>
-            <option value="dislike">{t('dashboard.feedbackModerationUi.dislike')}</option>
+            <option value="5">5 ★ ({t('dashboard.feedbackModerationUi.star5')})</option>
+            <option value="4">4 ★ ({t('dashboard.feedbackModerationUi.star4')})</option>
+            <option value="3">3 ★ ({t('dashboard.feedbackModerationUi.star3')})</option>
+            <option value="2">2 ★ ({t('dashboard.feedbackModerationUi.star2')})</option>
+            <option value="1">1 ★ ({t('dashboard.feedbackModerationUi.star1')})</option>
+          </select>
+
+          {/* Lọc theo tag / tiêu chí */}
+          <select
+            value={feedbackTag}
+            onChange={(e) => { setFeedbackTag(e.target.value); setFeedbackPage(1) }}
+            className="rounded-xl border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 max-w-[220px] truncate"
+          >
+            <option value="">{t('dashboard.feedbackModerationUi.allTags')}</option>
+            {availableTags.map((tagItem) => (
+              <option key={tagItem.code} value={tagItem.code}>
+                {tagItem.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -1344,12 +1742,12 @@ function DashboardPage() {
         <p className="text-sm text-slate-400">{t('dashboard.feedbackModerationUi.loading')}</p>
       ) : (
         <div className="space-y-3">
-          {feedbacks.length === 0 ? (
+          {displayedFeedbacks.length === 0 ? (
             <div className="rounded-2xl border border-surface-border bg-surface-base/40 px-4 py-3 text-sm text-slate-400">
               {t('dashboard.feedbackModerationUi.empty')}
             </div>
           ) : (
-            feedbacks.map((feedback, index) => {
+            displayedFeedbacks.map((feedback, index) => {
               const id = feedback?.id || feedback?._id || feedback?.feedback_id || `feedback-${index}`
               const replyStatus = getFeedbackReplyStatus(feedback)
               const isReplied = replyStatus === 'replied'
@@ -1373,16 +1771,73 @@ function DashboardPage() {
                 return String(value) === String(selectedTemplateValue)
               })
               const feedbackEmail = getFeedbackUserEmail(feedback)
+              const feedbackAuthorName = getFeedbackAuthorName(feedback, lang)
+              const feedbackTags = getFeedbackTags(feedback, t)
+              const userComment = getFeedbackUserComment(feedback)
 
               return (
-                <div key={id} className="rounded-2xl border border-surface-border bg-surface-base/40 px-4 py-4">
-                  <p className="text-sm text-white">{getFeedbackComment(feedback, lang)}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {t('dashboard.feedbackModerationUi.userEmail')}: {feedbackEmail || '-'}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">{t('dashboard.feedbackModerationUi.ratingLabel')}: {getFeedbackRatingLabel(feedback?.rating, t)}</p>
+                <div key={id} className="rounded-2xl border border-surface-border bg-surface-base/40 p-4 sm:p-5 space-y-3.5">
+                  {/* Tag (hiển thị to hơn) & Đánh giá sao */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {feedbackTags.length > 0 ? (
+                        feedbackTags.map((tagItem, tagIdx) => (
+                          <span
+                            key={`${tagItem.code || tagIdx}-${tagIdx}`}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-accent/20 border border-accent/40 px-3.5 py-1.5 text-base font-semibold text-white shadow-sm"
+                          >
+                            <span className="text-accent text-sm">🏷️</span>
+                            <span>{tagItem.label}</span>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs italic text-slate-500">
+                          {t('dashboard.feedbackModerationUi.noTag')}
+                        </span>
+                      )}
+                    </div>
 
-                  <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm">
+                        <span className="text-amber-400">★</span>
+                        <span>{getFeedbackRatingLabel(feedback?.rating, t)}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Comment của người dùng (ở dưới tag) */}
+                  <div className="rounded-xl border border-surface-border/70 bg-surface-base/70 p-3.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      {t('dashboard.feedbackModerationUi.userComment')}
+                    </p>
+                    {userComment ? (
+                      <div className="max-h-36 overflow-y-auto pr-1.5 scrollbar-thin">
+                        <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-wrap font-normal break-words [overflow-wrap:anywhere]">
+                          {userComment}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs italic text-slate-500">
+                        {t('dashboard.feedbackModerationUi.noComment')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Thông tin người gửi */}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                    <p>
+                      <span className="text-slate-500">{t('dashboard.feedbackModerationUi.userName')}:</span>{' '}
+                      <span className="text-slate-200 font-semibold">{feedbackAuthorName}</span>
+                    </p>
+                    {feedbackEmail && (
+                      <p>
+                        <span className="text-slate-500">{t('dashboard.feedbackModerationUi.userEmail')}:</span>{' '}
+                        <span className="text-slate-300 font-medium">{feedbackEmail}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-3 grid gap-2 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)_auto]">
                     <select
                       value={selectedTemplateValue}
                       onChange={(e) => {
@@ -1401,7 +1856,7 @@ function DashboardPage() {
                         }))
                       }}
                       disabled={isReplied}
-                      className="rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
+                      className="w-full min-w-0 rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200"
                     >
                       <option value="">{t('dashboard.feedbackTemplates.select')}</option>
                       <option value="custom">{t('dashboard.feedbackTemplates.custom')}</option>
@@ -1420,9 +1875,9 @@ function DashboardPage() {
                       placeholder={t('dashboard.feedbackModerationUi.replyPlaceholder')}
                       readOnly={!isCustomTemplate}
                       disabled={isReplied || !isCustomTemplate}
-                      className={`rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 ${!isCustomTemplate ? 'cursor-not-allowed opacity-80' : ''}`}
+                      className={`w-full min-w-0 rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm text-slate-200 ${!isCustomTemplate ? 'cursor-not-allowed opacity-80' : ''}`}
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <button type="button" onClick={() => handleReplyFeedback(feedback, index)} disabled={isReplied} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-70">
                         {isReplied ? t('dashboard.feedbackModerationUi.repliedButton') : t('dashboard.feedbackModerationUi.reply')}
                       </button>
@@ -1475,7 +1930,7 @@ function DashboardPage() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
       <aside className="hidden rounded-3xl border border-surface-border bg-surface-raised p-6 lg:block">
         <div className="mb-8">
           <div className="text-sm font-semibold uppercase tracking-[0.32em] text-slate-500">
@@ -1500,16 +1955,45 @@ function DashboardPage() {
         </nav>
       </aside>
 
-      <div className="space-y-6">
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="rounded-xl border border-surface-border bg-surface-raised px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
-          >
-            {t('dashboard.switchToUserPage')}
-          </button>
+      <div className="min-w-0 space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl font-bold text-white lg:hidden">
+            {t(navItems.find((n) => n.id === activeNav)?.labelKey || 'nav.dashboard')}
+          </h1>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="rounded-xl border border-surface-border bg-surface-raised px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-surface-elevated hover:text-white"
+            >
+              {t('dashboard.switchToUserPage')}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile & Tablet Tab Selector (visible on < lg) */}
+        <div className="rounded-2xl border border-surface-border bg-surface-raised p-2 lg:hidden">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {navItems.map((item) => {
+              const isActive = activeNav === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveNav(item.id)}
+                  className={`shrink-0 rounded-xl px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition ${
+                    isActive
+                      ? 'bg-accent text-surface-base shadow-sm shadow-accent/25'
+                      : 'border border-surface-border bg-surface-base text-slate-300 hover:border-accent/40 hover:text-white'
+                  }`}
+                >
+                  {t(item.labelKey)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {renderPageContent()}
       </div>
 
@@ -1535,6 +2019,131 @@ function DashboardPage() {
                 className="rounded-lg bg-rose-500/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {t('dashboard.feedbackModerationUi.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ban User Modal */}
+      {banUserTarget && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-2xl shadow-black/50 space-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-rose-400 font-bold">
+                {lang === 'vi' ? 'Khóa tài khoản' : 'Ban Account'}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-white">
+                {lang === 'vi' ? 'Xác nhận cấm người dùng' : 'Confirm User Ban'}
+              </h3>
+              <p className="mt-2 text-sm text-slate-300">
+                {lang === 'vi'
+                  ? `Bạn đang thực hiện khóa tài khoản của ${banUserTarget.full_name || banUserTarget.email || 'người dùng này'}. Người dùng sẽ không thể đăng nhập hoặc sử dụng dịch vụ.`
+                  : `You are about to ban ${banUserTarget.full_name || banUserTarget.email || 'this user'}. They will not be able to log in or use the service.`}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400">
+                {lang === 'vi' ? 'Lý do vô hiệu hóa (tối đa 500 ký tự)' : 'Ban Reason (max 500 chars)'}
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {[
+                  lang === 'vi' ? 'Vi phạm điều khoản dịch vụ' : 'Terms of service violation',
+                  lang === 'vi' ? 'Spam hoặc lạm dụng hệ thống' : 'Spam or system abuse',
+                  lang === 'vi' ? 'Hành vi đáng ngờ' : 'Suspicious activity',
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setBanReasonInput(preset)}
+                    className="rounded-lg border border-surface-border bg-surface-base px-2.5 py-1 text-xs text-slate-300 hover:border-accent hover:text-white transition"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={banReasonInput}
+                onChange={(e) => setBanReasonInput(e.target.value.slice(0, 500))}
+                placeholder={lang === 'vi' ? 'Nhập lý do khóa tài khoản...' : 'Enter ban reason...'}
+                rows={3}
+                className="w-full rounded-2xl border border-surface-border bg-surface-base p-3 text-sm text-slate-200 outline-none transition focus:border-rose-500"
+              />
+            </div>
+
+            {banActionError && (
+              <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                {banActionError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setBanUserTarget(null)}
+                disabled={banActionLoading}
+                className="rounded-xl border border-surface-border px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-surface-base/60 disabled:opacity-50"
+              >
+                {lang === 'vi' ? 'Hủy bỏ' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBan}
+                disabled={banActionLoading}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:opacity-50 shadow-lg shadow-rose-600/20"
+              >
+                {banActionLoading
+                  ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                  : (lang === 'vi' ? 'Xác nhận cấm' : 'Confirm Ban')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unban User Modal */}
+      {unbanUserTarget && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-surface-border bg-surface-raised p-6 shadow-2xl shadow-black/50 space-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-emerald-400 font-bold">
+                {lang === 'vi' ? 'Mở khóa tài khoản' : 'Unban Account'}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-white">
+                {lang === 'vi' ? 'Xác nhận bỏ cấm người dùng' : 'Confirm User Unban'}
+              </h3>
+              <p className="mt-2 text-sm text-slate-300">
+                {lang === 'vi'
+                  ? `Bạn có chắc chắn muốn mở lại quyền truy cập cho ${unbanUserTarget.full_name || unbanUserTarget.email || 'tài khoản này'}?`
+                  : `Are you sure you want to restore access for ${unbanUserTarget.full_name || unbanUserTarget.email || 'this account'}?`}
+              </p>
+            </div>
+
+            {unbanActionError && (
+              <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                {unbanActionError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setUnbanUserTarget(null)}
+                disabled={unbanActionLoading}
+                className="rounded-xl border border-surface-border px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-surface-base/60 disabled:opacity-50"
+              >
+                {lang === 'vi' ? 'Hủy bỏ' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmUnban}
+                disabled={unbanActionLoading}
+                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50 shadow-lg shadow-emerald-600/20"
+              >
+                {unbanActionLoading
+                  ? (lang === 'vi' ? 'Đang xử lý...' : 'Processing...')
+                  : (lang === 'vi' ? 'Xác nhận mở khóa' : 'Confirm Unban')}
               </button>
             </div>
           </div>
