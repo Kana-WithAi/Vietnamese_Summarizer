@@ -8,7 +8,7 @@ import QRCode from 'qrcode'
 function PricingPage() {
   const navigate = useNavigate()
   const { t, lang } = useLanguage()
-  const { tier: authTier, refreshUser } = useAuth()
+  const { tier: authTier, refreshUser, isAuthenticated, subscriptionDetails } = useAuth()
   const [plans, setPlans] = useState([])
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [plansError, setPlansError] = useState('')
@@ -25,6 +25,61 @@ function PricingPage() {
   const [cancelModalError, setCancelModalError] = useState('')
 
   const currentTier = authTier || 'free'
+
+  const currentPlan = useMemo(() => {
+    if (!isAuthenticated) return null
+
+    const planId =
+      subscriptionDetails?.plan_id ||
+      subscriptionDetails?.plan?.id ||
+      subscriptionDetails?.subscription?.plan_id ||
+      subscriptionDetails?.subscription?.plan?.id
+
+    if (planId) {
+      const found = plans.find((p) => String(p.id) === String(planId))
+      if (found) return found
+    }
+
+    if (currentTier && currentTier !== 'free') {
+      const found = plans.find((p) => {
+        const pKey = p.key.toLowerCase()
+        const tKey = currentTier.toLowerCase()
+        return pKey === tKey || pKey.includes(tKey) || tKey.includes(pKey)
+      })
+      if (found) return found
+    }
+
+    if (currentTier === 'free' || !currentTier) {
+      return plans.find((p) => p.key.includes('free') || Number(p.price) === 0) || null
+    }
+
+    return null
+  }, [isAuthenticated, subscriptionDetails, currentTier, plans])
+
+  const currentPlanPrice = useMemo(() => {
+    if (!isAuthenticated) return 0
+    if (currentPlan) return Number(currentPlan.price || 0)
+
+    const subPrice = Number(
+      subscriptionDetails?.price ||
+      subscriptionDetails?.plan?.price ||
+      subscriptionDetails?.subscription?.price ||
+      subscriptionDetails?.subscription?.plan?.price ||
+      0
+    )
+    if (subPrice > 0) return subPrice
+
+    if (currentTier.includes('max')) {
+      const maxPlan = plans.find((p) => p.key.includes('max'))
+      if (maxPlan) return Number(maxPlan.price || 0)
+    }
+    if (currentTier.includes('pro')) {
+      const proPlan = plans.find((p) => p.key.includes('pro'))
+      if (proPlan) return Number(proPlan.price || 0)
+    }
+
+    return 0
+  }, [isAuthenticated, currentPlan, subscriptionDetails, currentTier, plans])
 
   const getPlanLocaleKey = (planKey) => {
     if (planKey.includes('free')) return 'free'
@@ -130,6 +185,11 @@ function PricingPage() {
 
     if (Number(plan.price) <= 0) {
       setPlansError(t('pricingPage.errors.zeroPrice'))
+      return
+    }
+
+    if (isAuthenticated && currentPlanPrice > 0 && Number(plan.price) < currentPlanPrice) {
+      setPlansError(t('pricingPage.errors.lowerPrice'))
       return
     }
 
@@ -476,7 +536,16 @@ function PricingPage() {
           </div>
         ) : (
           sortedPlans.map((plan) => {
-            const isCurrentPlan = plan.key.includes(currentTier)
+            const isCurrentPlan = Boolean(
+              isAuthenticated && (
+                (currentPlan && plan.id === currentPlan.id) ||
+                (currentTier && currentTier !== 'free' && (plan.key === currentTier || plan.key.includes(currentTier) || currentTier.includes(plan.key))) ||
+                ((currentTier === 'free' || !currentTier) && (plan.key.includes('free') || Number(plan.price) === 0))
+              )
+            )
+            const isLowerPrice = Boolean(
+              isAuthenticated && !isCurrentPlan && currentPlanPrice > 0 && Number(plan.price) < currentPlanPrice
+            )
             const isFeatured = plan.key.includes('pro')
             const isBusy = checkoutLoadingPlanId === plan.id
             const localizedDescription = getLocalizedDescription(plan)
@@ -529,12 +598,20 @@ function PricingPage() {
 
                 <button
                   type="button"
-                  disabled={isCurrentPlan || isBusy || Number(plan.price) <= 0}
+                  disabled={isCurrentPlan || isLowerPrice || isBusy || Number(plan.price) <= 0}
                   onClick={() => handleStartCheckout(plan)}
-                  className="mt-8 w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-surface-base transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  className={`mt-8 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed ${
+                    isCurrentPlan
+                      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 opacity-90'
+                      : isLowerPrice
+                        ? 'border border-surface-border bg-surface-elevated/40 text-slate-500 opacity-60'
+                        : 'bg-accent text-surface-base hover:bg-accent-hover disabled:opacity-60'
+                  }`}
                 >
                   {isCurrentPlan
                     ? t('pricingPage.currentPlan')
+                    : isLowerPrice
+                      ? t('pricingPage.lowerPlan')
                     : Number(plan.price) <= 0
                       ? t('pricingPage.unavailable')
                     : isBusy
