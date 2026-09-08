@@ -315,6 +315,9 @@ function HomePage() {
       if (text) {
         setInputText(text)
         setSelectedUploadFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
       }
     } catch {
       /* clipboard unavailable */
@@ -347,6 +350,9 @@ function HomePage() {
     setSelectedUploadFile(null)
     setErrorMessage('')
     setSuccessMessage('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const getSavedCollections = () => {
@@ -1218,7 +1224,7 @@ function HomePage() {
             <button
               type="button"
               onClick={handleClear}
-              disabled={isEmpty && !summary}
+              disabled={isEmpty && !summary && !selectedUploadFile && !ocrData && ocrBlocks.length === 0}
               className="text-sm text-slate-400 transition hover:text-red-400 disabled:opacity-40"
             >
               {t('input.clear')}
@@ -1235,6 +1241,22 @@ function HomePage() {
                   <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{t('input.fileLabel')}</div>
                   <div className="truncate text-sm font-medium text-slate-100">{selectedUploadFile.name}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUploadFile(null)
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = ''
+                    }
+                  }}
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-surface-elevated hover:text-red-400"
+                  title={t('input.removeFile')}
+                  aria-label={t('input.removeFile')}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
           )}
@@ -1246,6 +1268,9 @@ function HomePage() {
                 setInputText(e.target.value)
                 if (selectedUploadFile) {
                   setSelectedUploadFile(null)
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = ''
+                  }
                 }
               }}
               placeholder={t('input.placeholder')}
